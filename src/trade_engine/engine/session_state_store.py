@@ -2,7 +2,7 @@
 import os
 import tempfile
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class SessionStateStore:
@@ -11,7 +11,7 @@ class SessionStateStore:
     def __init__(self, state_file: str):
         self.state_file = state_file
 
-    def load_state(self) -> Optional[Dict[str, Any]]:
+    def load_state(self) -> dict[str, Any] | None:
         if not os.path.exists(self.state_file):
             return None
         try:
@@ -20,7 +20,7 @@ class SessionStateStore:
         except Exception:
             return None
 
-    def save_state(self, state: Dict[str, Any]) -> bool:
+    def save_state(self, state: dict[str, Any]) -> bool:
         try:
             state = dict(state)
             state["saved_at"] = datetime.utcnow().isoformat()

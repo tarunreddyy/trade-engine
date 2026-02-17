@@ -2,15 +2,21 @@
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any
 
 from rich.columns import Columns
+from rich.console import Group
+from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
 from trade_engine.brokers.base_broker import BaseBroker
 from trade_engine.core.event_bus import EventBus
+from trade_engine.core.market_data_service import MarketDataService
 from trade_engine.config.trading_config import (
+    get_live_dashboard_control_file,
+    get_live_dashboard_port,
+    get_live_dashboard_state_file,
     get_kill_switch_enabled,
     get_live_auto_resume_session,
     get_live_market_hours_only,
@@ -22,6 +28,7 @@ from trade_engine.engine.observability import RuntimeMetrics
 from trade_engine.engine.position_sizer import PositionSizer
 from trade_engine.engine.risk_engine import RiskConfig, RiskEngine
 from trade_engine.engine.session_state_store import SessionStateStore
+from trade_engine.web.live_dashboard import LiveDashboardServer, read_dashboard_controls, write_dashboard_state
 
 
 @dataclass
@@ -39,7 +46,7 @@ class LiveTradingConsole:
     def __init__(
         self,
         interface,
-        broker: Optional[BaseBroker] = None,
+        broker: BaseBroker | None = None,
         initial_capital: float = 100000.0,
     ):
         self.interface = interface
@@ -52,16 +59,26 @@ class LiveTradingConsole:
         self.position_sizer = PositionSizer()
         self.router = ExecutionRouter(mode="paper", broker=self.broker, risk_engine=self.risk_engine)
         self.state_store = SessionStateStore(get_live_session_state_file())
+        self.market_data = MarketDataService()
+        self.dashboard_state_file = get_live_dashboard_state_file()
+        self.dashboard_control_file = get_live_dashboard_control_file()
+        self.dashboard_port = get_live_dashboard_port()
+        self.dashboard_server: LiveDashboardServer | None = None
         self.event_bus = EventBus()
         self.metrics = RuntimeMetrics()
         self.event_bus.subscribe("*", lambda evt: self.metrics.on_event(evt.event_type))
 
         self.cash = initial_capital
-        self.positions: Dict[str, PositionState] = {}
+        self.positions: dict[str, PositionState] = {}
         self.realized_pnl = 0.0
-        self.event_log: List[str] = []
-        self.equity_history: List[float] = []
-        self.runtime_watchlist: List[str] = []
+        self.event_log: list[str] = []
+        self.equity_history: list[float] = []
+        self.runtime_watchlist: list[str] = []
+        self._latest_snapshots: list[dict[str, Any]] = []
+        self._latest_equity: float = initial_capital
+        self._command_buffer: str = ""
+        self._symbol_controls: dict[str, dict[str, bool]] = {}
+        self.signal_triggers: list[dict[str, Any]] = []
 
     @staticmethod
     def _signal_text(signal: int) -> str:
@@ -72,7 +89,7 @@ class LiveTradingConsole:
         return "[yellow]HOLD[/yellow]"
 
     @staticmethod
-    def _sparkline(values: List[float], width: int = 32) -> str:
+    def _sparkline(values: list[float], width: int = 32) -> str:
         if not values:
             return ""
         blocks = "._-:=+*#%@"
@@ -93,7 +110,144 @@ class LiveTradingConsole:
         self.event_log = self.event_log[-30:]
         self.event_bus.publish("log_event", {"message": message})
 
-    def _serialize_state(self, symbols: List[str]) -> dict:
+    @staticmethod
+    def _signal_label(signal: int) -> str:
+        if signal == 1:
+            return "BUY"
+        if signal == -1:
+            return "SELL"
+        return "HOLD"
+
+    def _load_symbol_controls(self, symbols: list[str]) -> dict[str, dict[str, bool]]:
+        payload = read_dashboard_controls(self.dashboard_control_file)
+        symbol_controls = payload.get("symbol_controls", {}) if isinstance(payload, dict) else {}
+        resolved: dict[str, dict[str, bool]] = {}
+        for symbol in symbols:
+            row = symbol_controls.get(symbol, {}) if isinstance(symbol_controls, dict) else {}
+            resolved[symbol] = {
+                "buy": bool(row.get("buy", True)),
+                "sell": bool(row.get("sell", True)),
+            }
+        self._symbol_controls = resolved
+        return resolved
+
+    def _is_symbol_side_enabled(self, symbol: str, side: str) -> bool:
+        controls = self._symbol_controls.get(symbol, {"buy": True, "sell": True})
+        return bool(controls.get(side.lower(), True))
+
+    def _append_trigger(self, symbol: str, signal: int, price: float | None, action: str):
+        if signal not in {1, -1}:
+            return
+        self.signal_triggers.insert(
+            0,
+            {
+                "timestamp": datetime.utcnow().strftime("%H:%M:%S"),
+                "symbol": symbol,
+                "signal_text": self._signal_label(signal),
+                "price": None if price is None else round(float(price), 4),
+                "action": action,
+            },
+        )
+        self.signal_triggers = self.signal_triggers[:200]
+
+    def _start_dashboard_server(self, open_browser: bool = False) -> str:
+        if self.dashboard_server:
+            return self.dashboard_server.url
+        self.dashboard_server = LiveDashboardServer(
+            host="127.0.0.1",
+            port=self.dashboard_port,
+            state_file=self.dashboard_state_file,
+            control_file=self.dashboard_control_file,
+        )
+        return self.dashboard_server.start(open_browser=open_browser)
+
+    def _build_dashboard_payload(
+        self,
+        strategy_name: str,
+        snapshots: list[dict[str, Any]],
+        session_started_at: str,
+    ) -> dict[str, Any]:
+        latest_prices = {row["symbol"]: row.get("price") for row in snapshots}
+        positions: list[dict[str, Any]] = []
+        for symbol, position in self.positions.items():
+            market_price = latest_prices.get(symbol, position.entry_price)
+            if market_price is None:
+                market_price = position.entry_price
+            if position.side == "LONG":
+                upnl = (float(market_price) - position.entry_price) * position.quantity
+            else:
+                upnl = (position.entry_price - float(market_price)) * position.quantity
+            positions.append(
+                {
+                    "symbol": symbol,
+                    "side": position.side,
+                    "quantity": position.quantity,
+                    "entry_price": round(position.entry_price, 4),
+                    "market_price": round(float(market_price), 4),
+                    "unrealized_pnl": round(upnl, 2),
+                }
+            )
+
+        watchlist: list[dict[str, Any]] = []
+        for row in snapshots:
+            symbol = row["symbol"]
+            controls = self._symbol_controls.get(symbol, {"buy": True, "sell": True})
+            watchlist.append(
+                {
+                    "symbol": symbol,
+                    "price": None if row.get("price") is None else round(float(row["price"]), 4),
+                    "change_pct": None if row.get("change_pct") is None else round(float(row["change_pct"]), 4),
+                    "signal": int(row.get("signal", 0)),
+                    "signal_text": self._signal_label(int(row.get("signal", 0))),
+                    "buy_enabled": bool(controls.get("buy", True)),
+                    "sell_enabled": bool(controls.get("sell", True)),
+                }
+            )
+
+        session_summary = self.router.journal.get_session_summary(since_iso=session_started_at, limit=30)
+        try:
+            indices = self.market_data.get_indices_snapshot()
+        except Exception:
+            indices = []
+        try:
+            fno = self.market_data.get_fno_snapshot()
+        except Exception:
+            fno = []
+        return {
+            "strategy_name": strategy_name,
+            "mode": self.router.mode,
+            "cash": round(self.cash, 2),
+            "equity": round(self._latest_equity, 2),
+            "realized_pnl": round(self.realized_pnl, 2),
+            "positions": positions,
+            "watchlist": watchlist,
+            "signal_triggers": self.signal_triggers[:80],
+            "open_orders": session_summary.get("open_rows", []),
+            "closed_orders": session_summary.get("closed_rows", []),
+            "session": {
+                "started_at": session_started_at,
+                "total_orders": session_summary.get("total_orders", 0),
+                "open_orders": session_summary.get("open_orders", 0),
+                "closed_orders": session_summary.get("closed_orders", 0),
+            },
+            "indices": indices,
+            "fno": fno,
+        }
+
+    def _export_dashboard_state(
+        self,
+        strategy_name: str,
+        snapshots: list[dict[str, Any]],
+        session_started_at: str,
+    ):
+        payload = self._build_dashboard_payload(
+            strategy_name=strategy_name,
+            snapshots=snapshots,
+            session_started_at=session_started_at,
+        )
+        write_dashboard_state(self.dashboard_state_file, payload)
+
+    def _serialize_state(self, symbols: list[str]) -> dict[str, Any]:
         return {
             "version": 1,
             "cash": self.cash,
@@ -118,7 +272,7 @@ class LiveTradingConsole:
             },
         }
 
-    def save_runtime_state(self, symbols: Optional[List[str]] = None) -> bool:
+    def save_runtime_state(self, symbols: list[str] | None = None) -> bool:
         symbols = symbols or self.runtime_watchlist
         return self.state_store.save_state(self._serialize_state(symbols))
 
@@ -133,7 +287,7 @@ class LiveTradingConsole:
             self.cash = float(state.get("cash", self.cash))
             self.realized_pnl = float(state.get("realized_pnl", self.realized_pnl))
 
-            restored_positions: Dict[str, PositionState] = {}
+            restored_positions: dict[str, PositionState] = {}
             for entry in state.get("positions", []):
                 symbol = str(entry.get("symbol", "")).upper()
                 if not symbol:
@@ -176,7 +330,7 @@ class LiveTradingConsole:
         except Exception:
             return False
 
-    def get_portfolio_state(self, latest_prices: Optional[Dict[str, float]] = None) -> dict:
+    def get_portfolio_state(self, latest_prices: dict[str, float] | None = None) -> dict[str, Any]:
         latest_prices = latest_prices or {}
         holdings = []
         total_holdings_value = 0.0
@@ -205,7 +359,7 @@ class LiveTradingConsole:
             "positions": holdings,
         }
 
-    def _build_snapshot(self, strategy, symbols: List[str], period: str, interval: str):
+    def _build_snapshot(self, strategy, symbols: list[str], period: str, interval: str) -> list[dict[str, Any]]:
         import yfinance as yf
 
         snapshots = []
@@ -244,7 +398,7 @@ class LiveTradingConsole:
                 snapshots.append({"symbol": symbol, "price": None, "signal": 0, "change_pct": None})
         return snapshots
 
-    def _process_signals(self, snapshots: List[dict]):
+    def _process_signals(self, snapshots: list[dict[str, Any]]):
         if self.risk_engine.daily_loss_breached(self.realized_pnl):
             self._log_event("Daily max-loss breached. New entries are disabled.")
             return
@@ -256,8 +410,8 @@ class LiveTradingConsole:
 
         for snapshot in snapshots:
             symbol = snapshot["symbol"]
-            signal = snapshot["signal"]
-            price = snapshot["price"]
+            signal = int(snapshot.get("signal", 0))
+            price = snapshot.get("price")
             if price is None:
                 continue
 
@@ -266,20 +420,33 @@ class LiveTradingConsole:
                 if current_position.side == "LONG":
                     should_exit, reason = self.risk_engine.check_exit(current_position.entry_price, price)
                     if should_exit and self.risk_config.sell_enabled:
+                        self._append_trigger(symbol, -1, price, reason)
                         self._exit_position(symbol, price, reason)
                         continue
                     if signal == -1 and self.risk_engine.is_signal_enabled(signal):
-                        self._exit_position(symbol, price, "STRATEGY_SELL")
+                        if self._is_symbol_side_enabled(symbol, "sell"):
+                            self._append_trigger(symbol, signal, price, "STRATEGY_SELL")
+                            self._exit_position(symbol, price, "STRATEGY_SELL")
+                        else:
+                            self._append_trigger(symbol, signal, price, "SELL_DISABLED")
                 else:
                     should_exit, reason = self.risk_engine.check_exit_short(current_position.entry_price, price)
                     if should_exit and self.risk_config.buy_enabled:
+                        self._append_trigger(symbol, 1, price, reason)
                         self._exit_position(symbol, price, reason)
                         continue
                     if signal == 1 and self.risk_engine.is_signal_enabled(signal):
-                        self._exit_position(symbol, price, "STRATEGY_BUY")
+                        if self._is_symbol_side_enabled(symbol, "buy"):
+                            self._append_trigger(symbol, signal, price, "STRATEGY_BUY")
+                            self._exit_position(symbol, price, "STRATEGY_BUY")
+                        else:
+                            self._append_trigger(symbol, signal, price, "BUY_DISABLED")
                 continue
 
             if signal == 1 and self.risk_engine.is_signal_enabled(signal):
+                if not self._is_symbol_side_enabled(symbol, "buy"):
+                    self._append_trigger(symbol, signal, price, "BUY_DISABLED")
+                    continue
                 qty = self.position_sizer.calculate_quantity(
                     cash=self.cash,
                     price=price,
@@ -297,10 +464,15 @@ class LiveTradingConsole:
                 if not allowed:
                     if qty > 0:
                         self._log_event(f"{symbol}: BUY blocked ({reason})")
+                        self._append_trigger(symbol, signal, price, f"BUY_BLOCKED:{reason}")
                     continue
+                self._append_trigger(symbol, signal, price, "BUY_EXECUTED")
                 self._enter_position(symbol, qty, price, side="BUY")
                 current_exposure += qty * price
             elif signal == -1 and self.risk_engine.is_signal_enabled(signal):
+                if not self._is_symbol_side_enabled(symbol, "sell"):
+                    self._append_trigger(symbol, signal, price, "SELL_DISABLED")
+                    continue
                 qty = self.position_sizer.calculate_quantity(
                     cash=self.cash,
                     price=price,
@@ -318,7 +490,9 @@ class LiveTradingConsole:
                 if not allowed:
                     if qty > 0:
                         self._log_event(f"{symbol}: SHORT blocked ({reason})")
+                        self._append_trigger(symbol, signal, price, f"SELL_BLOCKED:{reason}")
                     continue
+                self._append_trigger(symbol, signal, price, "SELL_EXECUTED")
                 self._enter_position(symbol, qty, price, side="SELL")
                 current_exposure += qty * price
 
@@ -512,7 +686,7 @@ class LiveTradingConsole:
             self._log_event(f"{symbol}: {reason} {side} {quantity} @ {price:.2f}")
         return order
 
-    def _compute_equity(self, snapshots: List[dict]) -> float:
+    def _compute_equity(self, snapshots: list[dict[str, Any]]) -> float:
         equity = self.cash
         latest_prices = {row["symbol"]: row["price"] for row in snapshots}
         for symbol, pos in self.positions.items():
@@ -524,7 +698,23 @@ class LiveTradingConsole:
                     equity -= pos.quantity * mark
         return equity
 
-    def _render_dashboard(self, strategy_name: str, snapshots: List[dict]):
+    def _update_runtime_metrics(self, snapshots: list[dict[str, Any]]):
+        equity = self._compute_equity(snapshots)
+        self._latest_equity = equity
+        self.equity_history.append(equity)
+        self.equity_history = self.equity_history[-200:]
+        metrics_payload = self.metrics.snapshot(
+            equity=equity,
+            cash=self.cash,
+            realized_pnl=self.realized_pnl,
+            open_positions=len(self.positions),
+            orders_today=self.router.orders_today,
+            recent_events=self.event_log,
+        )
+        self.metrics.export(metrics_payload)
+        self.event_bus.publish("runtime_snapshot", metrics_payload)
+
+    def _build_dashboard(self, strategy_name: str, snapshots: list[dict[str, Any]], seconds_to_refresh: int) -> Group:
         metrics = Table(title="Runtime Controls", show_header=True, header_style="bold magenta")
         metrics.add_column("Mode")
         metrics.add_column("Buy")
@@ -554,6 +744,8 @@ class LiveTradingConsole:
         watch.add_column("Price", justify="right")
         watch.add_column("Chg %", justify="right")
         watch.add_column("Signal")
+        watch.add_column("BuyEn")
+        watch.add_column("SellEn")
         watch.add_column("Side")
         watch.add_column("Position", justify="right")
         watch.add_column("Entry", justify="right")
@@ -561,6 +753,7 @@ class LiveTradingConsole:
         for row in snapshots:
             symbol = row["symbol"]
             position = self.positions.get(symbol)
+            controls = self._symbol_controls.get(symbol, {"buy": True, "sell": True})
             price = row["price"]
             change_pct = row["change_pct"]
             if position and price is not None:
@@ -576,26 +769,15 @@ class LiveTradingConsole:
                 "-" if price is None else f"{price:.2f}",
                 "-" if change_pct is None else f"{change_pct:.2f}",
                 self._signal_text(row["signal"]),
+                "ON" if controls.get("buy", True) else "OFF",
+                "ON" if controls.get("sell", True) else "OFF",
                 position.side if position else "-",
                 str(position.quantity) if position else "-",
                 f"{position.entry_price:.2f}" if position else "-",
                 upnl_text,
             )
 
-        equity = self._compute_equity(snapshots)
-        self.equity_history.append(equity)
-        self.equity_history = self.equity_history[-200:]
         spark = self._sparkline(self.equity_history)
-        metrics_payload = self.metrics.snapshot(
-            equity=equity,
-            cash=self.cash,
-            realized_pnl=self.realized_pnl,
-            open_positions=len(self.positions),
-            orders_today=self.router.orders_today,
-            recent_events=self.event_log,
-        )
-        self.metrics.export(metrics_payload)
-        self.event_bus.publish("runtime_snapshot", metrics_payload)
 
         summary = Table(title="Account Summary", show_header=True, header_style="bold green")
         summary.add_column("Cash")
@@ -604,7 +786,7 @@ class LiveTradingConsole:
         summary.add_column("Open Positions")
         summary.add_row(
             f"{self.cash:,.2f}",
-            f"{equity:,.2f}",
+            f"{self._latest_equity:,.2f}",
             f"{self.realized_pnl:,.2f}",
             str(len(self.positions)),
         )
@@ -618,54 +800,57 @@ class LiveTradingConsole:
             events.add_row("No events yet.")
 
         spark_panel = Panel(spark or "-", title="Equity Trend", border_style="blue")
+        command_panel = Panel(
+            (
+                "[bold white]Slash Commands:[/bold white] "
+                "/buy on|off, /sell on|off, /sl <pct>, /tp <pct>, /risk <pct>, /maxpos <pct>, /mode paper|live, "
+                "/kill on|off, /hours on|off, /maxorders <n>, /add <SYM>, /remove <SYM>, /clearstate, /help, /quit\n"
+                "[dim]Per-symbol BUY/SELL toggles are controlled from web dashboard checkboxes.[/dim]\n"
+                "[dim]Shortcuts: /b /s /r /m /q /h /ls /pt /mp /ko /mh /mo /a /rm /cs[/dim]\n"
+                f"[bold yellow]Input[/bold yellow]: [cyan]{self._command_buffer}[/cyan]  "
+                f"[dim](next refresh in {seconds_to_refresh}s)[/dim]"
+            ),
+            border_style="white",
+            title="Command Console",
+        )
 
-        self.interface.clear_screen()
-        self.interface.console.print(
+        return Group(
             Columns(
                 [
                     Panel(metrics, border_style="magenta"),
                     Panel(summary, border_style="green"),
                 ]
-            )
-        )
-        self.interface.console.print(spark_panel)
-        self.interface.console.print(Panel(watch, border_style="cyan"))
-        self.interface.console.print(Panel(events, border_style="yellow"))
-        self.interface.console.print(
-            "[bold white]Commands:[/bold white] "
-            "buy on|off, sell on|off, sl <pct>, tp <pct>, risk <pct>, maxpos <pct>, mode paper|live, "
-            "kill on|off, hours on|off, maxorders <n>, add <SYM>, remove <SYM>, clearstate, help, quit"
+            ),
+            spark_panel,
+            Panel(watch, border_style="cyan"),
+            Panel(events, border_style="yellow"),
+            command_panel,
         )
 
-    def _timed_command(self, timeout_seconds: int) -> str:
-        if os.name == "nt":
-            try:
-                import msvcrt
+    def _poll_command_nonblocking(self) -> str | None:
+        if os.name != "nt":
+            return None
+        try:
+            import msvcrt
+        except Exception:
+            return None
 
-                self.interface.console.print(
-                    f"[bold yellow]Command (auto-continue in {timeout_seconds}s): [/bold yellow]",
-                    end="",
-                )
-                buffer = ""
-                end_at = time.time() + timeout_seconds
-                while time.time() < end_at:
-                    if msvcrt.kbhit():
-                        char = msvcrt.getwche()
-                        if char in ("\r", "\n"):
-                            self.interface.console.print("")
-                            return buffer.strip()
-                        if char == "\x08":
-                            buffer = buffer[:-1]
-                            continue
-                        buffer += char
-                    time.sleep(0.05)
-                self.interface.console.print("")
-                return ""
-            except Exception:
-                pass
-        return ""
+        while msvcrt.kbhit():
+            character = msvcrt.getwch()
+            if character in {"\r", "\n"}:
+                command = self._command_buffer.strip()
+                self._command_buffer = ""
+                return command
+            if character in {"\b", "\x08"}:
+                self._command_buffer = self._command_buffer[:-1]
+                continue
+            if character == "\x03":
+                raise KeyboardInterrupt
+            if character.isprintable():
+                self._command_buffer += character
+        return None
 
-    def _apply_command(self, cmd: str, symbols: List[str]) -> bool:
+    def _apply_command(self, cmd: str, symbols: list[str]) -> bool:
         if not cmd:
             return True
         normalized = cmd.strip()
@@ -681,6 +866,24 @@ class LiveTradingConsole:
             return True
 
         key = tokens[0].lstrip("/").lower()
+        aliases = {
+            "b": "buy",
+            "s": "sell",
+            "r": "risk",
+            "m": "mode",
+            "q": "quit",
+            "h": "help",
+            "ls": "sl",
+            "pt": "tp",
+            "mp": "maxpos",
+            "ko": "kill",
+            "mh": "hours",
+            "mo": "maxorders",
+            "a": "add",
+            "rm": "remove",
+            "cs": "clearstate",
+        }
+        key = aliases.get(key, key)
         if key == "quit":
             self._log_event("Stopping live console.")
             return False
@@ -766,12 +969,14 @@ class LiveTradingConsole:
         self,
         strategy,
         strategy_name: str,
-        symbols: List[str],
+        symbols: list[str],
         refresh_seconds: int = 15,
         period: str = "5d",
         interval: str = "5m",
         execution_mode: str = "paper",
-        resume_session: Optional[bool] = None,
+        resume_session: bool | None = None,
+        launch_web_dashboard: bool = True,
+        open_dashboard_browser: bool = True,
     ):
         if resume_session is None:
             resume_session = get_live_auto_resume_session()
@@ -793,21 +998,64 @@ class LiveTradingConsole:
             raise ValueError("At least one symbol is required to run live console.")
 
         self._log_event(f"Started console in {self.router.mode.upper()} mode.")
-        running = True
-        while running:
-            snapshots = self._build_snapshot(strategy, symbols, period=period, interval=interval)
-            self._process_signals(snapshots)
-            if self.router.mode == "live":
-                reconciliation = self.router.reconcile_order_statuses()
-                if reconciliation.get("updated", 0) > 0:
-                    self._log_event(
-                        f"Reconciled {reconciliation['updated']}/{reconciliation['checked']} live orders."
-                    )
-            self._render_dashboard(strategy_name=strategy_name, snapshots=snapshots)
-            self.save_runtime_state(symbols)
-            cmd = self._timed_command(timeout_seconds=refresh_seconds)
-            running = self._apply_command(cmd, symbols)
+        self._command_buffer = ""
+        self._latest_snapshots = []
+        self.signal_triggers = []
+        session_started_at = datetime.utcnow().isoformat()
 
-        self.save_runtime_state(symbols)
+        if launch_web_dashboard:
+            dashboard_url = self._start_dashboard_server(open_browser=open_dashboard_browser)
+            self._log_event(f"Web dashboard: {dashboard_url}")
+
+        running = True
+        next_refresh = time.monotonic()
+
+        try:
+            with Live(console=self.interface.console, screen=True, auto_refresh=False) as live:
+                while running:
+                    now = time.monotonic()
+
+                    if not self._latest_snapshots or now >= next_refresh:
+                        self._load_symbol_controls(symbols)
+                        snapshots = self._build_snapshot(strategy, symbols, period=period, interval=interval)
+                        self._latest_snapshots = snapshots
+                        self._process_signals(snapshots)
+                        if self.router.mode == "live":
+                            reconciliation = self.router.reconcile_order_statuses()
+                            if reconciliation.get("updated", 0) > 0:
+                                self._log_event(
+                                    f"Reconciled {reconciliation['updated']}/{reconciliation['checked']} live orders."
+                                )
+                        self._update_runtime_metrics(snapshots)
+                        self._export_dashboard_state(
+                            strategy_name=strategy_name,
+                            snapshots=snapshots,
+                            session_started_at=session_started_at,
+                        )
+                        self.save_runtime_state(symbols)
+                        next_refresh = now + max(1, refresh_seconds)
+
+                    command = self._poll_command_nonblocking()
+                    if command is not None:
+                        running = self._apply_command(command, symbols)
+                        self.save_runtime_state(symbols)
+                        if not running:
+                            break
+
+                    seconds_to_refresh = max(0, int(next_refresh - now))
+                    live.update(
+                        self._build_dashboard(
+                            strategy_name=strategy_name,
+                            snapshots=self._latest_snapshots,
+                            seconds_to_refresh=seconds_to_refresh,
+                        ),
+                        refresh=True,
+                    )
+                    time.sleep(0.05)
+        finally:
+            self.save_runtime_state(symbols)
+            if self.dashboard_server:
+                self.dashboard_server.stop()
+                self.dashboard_server = None
 
 

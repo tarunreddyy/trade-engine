@@ -1,5 +1,5 @@
 ﻿from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import yfinance as yf
 
@@ -72,7 +72,7 @@ class StrategyLeaderboard:
         initial_capital: float,
         oos_only: bool = False,
         walk_forward_windows: int = 3,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         try:
             strategy = self._build_strategy(strategy_name)
             if oos_only:
@@ -111,7 +111,7 @@ class StrategyLeaderboard:
 
     def build(
         self,
-        symbols: List[str],
+        symbols: list[str],
         period: str = "1y",
         interval: str = "1d",
         top_n: int = 25,
@@ -129,7 +129,7 @@ class StrategyLeaderboard:
                 "message": "No symbols provided.",
             }
 
-        data_cache: Dict[str, Any] = {}
+        data_cache: dict[str, Any] = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = [executor.submit(self._fetch_history, symbol, period, interval) for symbol in unique_symbols]
             for future in as_completed(futures):
@@ -147,9 +147,9 @@ class StrategyLeaderboard:
             }
 
         strategy_names = list(STRATEGY_REGISTRY.keys())
-        rows: List[dict] = []
+        rows: list[dict] = []
 
-        eval_jobs: List[Tuple[str, str, Any]] = []
+        eval_jobs: list[tuple[str, str, Any]] = []
         for strategy_name in strategy_names:
             for symbol, df in data_cache.items():
                 eval_jobs.append((strategy_name, symbol, df))
@@ -175,11 +175,11 @@ class StrategyLeaderboard:
         rows.sort(key=lambda item: item["score"], reverse=True)
         top_rows = rows[:max(1, top_n)]
 
-        strategy_buckets: Dict[str, List[dict]] = {}
+        strategy_buckets: dict[str, list[dict]] = {}
         for row in rows:
             strategy_buckets.setdefault(row["strategy"], []).append(row)
 
-        strategy_summary: List[dict] = []
+        strategy_summary: list[dict] = []
         for strategy_name, bucket in strategy_buckets.items():
             count = len(bucket)
             if count == 0:
@@ -207,5 +207,6 @@ class StrategyLeaderboard:
             "message": f"Evaluated {len(rows)} strategy-symbol pairs ({'OOS' if oos_only else 'full history'}).",
             "evaluation_mode": "oos" if oos_only else "full_history",
         }
+
 
 

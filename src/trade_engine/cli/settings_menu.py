@@ -1,3 +1,8 @@
+from trade_engine.brokers.sdk_manager import (
+    get_broker_sdk_status,
+    install_broker_sdk,
+    list_broker_sdk_status,
+)
 from trade_engine.config.broker_config import SUPPORTED_BROKERS, get_active_broker, set_active_broker
 from trade_engine.config.groww_config import (
     get_groww_access_token,
@@ -34,6 +39,9 @@ from trade_engine.config.trading_config import (
     get_live_auto_resume_session,
     get_live_default_max_position_pct,
     get_live_default_mode,
+    get_live_dashboard_control_file,
+    get_live_dashboard_port,
+    get_live_dashboard_state_file,
     get_live_market_hours_only,
     get_live_max_orders_per_day,
     get_order_journal_file,
@@ -46,6 +54,9 @@ from trade_engine.config.trading_config import (
     set_live_auto_resume_session,
     set_live_default_max_position_pct,
     set_live_default_mode,
+    set_live_dashboard_control_file,
+    set_live_dashboard_port,
+    set_live_dashboard_state_file,
     set_live_market_hours_only,
     set_live_max_orders_per_day,
     set_order_journal_file,
@@ -75,7 +86,9 @@ class SettingsMenu:
         changed = False
         while True:
             options = [
+                "Quick Setup Wizard",
                 "Active Broker",
+                "Broker SDKs",
                 "Broker Credentials",
                 "LLM Provider and Keys",
                 "Pinecone Settings",
@@ -86,8 +99,12 @@ class SettingsMenu:
                 "Back to Main Menu",
             ]
             choice = self.interface.show_menu(options, "Settings")
-            if choice == "Active Broker":
+            if choice == "Quick Setup Wizard":
+                changed = self._quick_setup_wizard() or changed
+            elif choice == "Active Broker":
                 changed = self._set_active_broker() or changed
+            elif choice == "Broker SDKs":
+                changed = self._manage_broker_sdks() or changed
             elif choice == "Broker Credentials":
                 changed = self._set_broker_credentials() or changed
             elif choice == "LLM Provider and Keys":
@@ -105,6 +122,62 @@ class SettingsMenu:
             elif choice == "Back to Main Menu":
                 return changed
 
+    def quick_setup(self) -> bool:
+        return self._quick_setup_wizard()
+
+    def _quick_setup_wizard(self) -> bool:
+        changed = False
+        self.interface.print_info("Quick setup will configure broker, SDK, and credentials in one flow.")
+
+        current = get_active_broker()
+        broker = self.interface.show_menu(
+            [*SUPPORTED_BROKERS, "Keep current", "Cancel"],
+            "Quick Setup: Select Broker",
+        )
+        if broker == "Cancel":
+            return False
+        if broker == "Keep current":
+            broker = current
+
+        if broker != current:
+            set_active_broker(broker)
+            self.interface.print_success(f"Active broker set to: {broker}")
+            changed = True
+
+        status = get_broker_sdk_status(broker)
+        if not status["installed"]:
+            missing = ", ".join(status["missing_imports"])
+            self.interface.print_info(f"Missing modules for {broker}: {missing}")
+            install_now = (
+                self.interface.input_prompt(f"Install {broker.title()} SDK now? (Y/n): ").strip().lower()
+            )
+            if install_now in {"", "y", "yes"}:
+                result = self.interface.show_loading(
+                    f"[bold cyan]Installing {broker.title()} SDK...[/bold cyan]",
+                    install_broker_sdk,
+                    broker,
+                )
+                if result:
+                    ok, message = result
+                    if ok:
+                        self.interface.print_success(message)
+                        changed = True
+                    else:
+                        self.interface.print_error(message)
+
+        if broker == "none":
+            self.interface.print_info("Broker-free mode selected. Market data remains available.")
+            self.interface.print_success("Quick setup complete.")
+            return changed
+
+        if broker == "groww":
+            changed = self._set_groww_credentials() or changed
+        else:
+            changed = self._set_stub_broker_credentials(broker) or changed
+
+        self.interface.print_success("Quick setup complete.")
+        return changed
+
     def _set_active_broker(self) -> bool:
         current = get_active_broker()
         options = [name for name in SUPPORTED_BROKERS] + ["Back"]
@@ -112,13 +185,97 @@ class SettingsMenu:
         choice = self.interface.show_menu(options, "Select Active Broker")
         if choice == "Back" or choice == current:
             return False
+
+        status = get_broker_sdk_status(choice)
+        if not status["installed"]:
+            missing = ", ".join(status["missing_imports"])
+            self.interface.print_info(
+                f"{choice.title()} SDK missing modules: {missing}"
+            )
+            install_now = (
+                self.interface.input_prompt(
+                    f"Install {choice.title()} SDK now from CLI? (Y/n): "
+                )
+                .strip()
+                .lower()
+            )
+            if install_now in {"", "y", "yes"}:
+                ok, message = self.interface.show_loading(
+                    f"[bold cyan]Installing {choice.title()} SDK...[/bold cyan]",
+                    install_broker_sdk,
+                    choice,
+                ) or (False, "SDK install failed.")
+                if ok:
+                    self.interface.print_success(message)
+                else:
+                    self.interface.print_error(message)
+
         set_active_broker(choice)
         self.interface.print_success(f"Active broker set to: {choice}")
         return True
 
+    def _manage_broker_sdks(self) -> bool:
+        changed = False
+        while True:
+            choice = self.interface.show_menu(
+                [
+                    "View SDK Status",
+                    "Install SDK for Active Broker",
+                    "Install SDK for Specific Broker",
+                    "Back",
+                ],
+                "Broker SDK Manager",
+            )
+
+            if choice == "Back":
+                return changed
+
+            if choice == "View SDK Status":
+                rows = list_broker_sdk_status()
+                self.interface.display_response(rows, "Broker SDK Status")
+                continue
+
+            if choice == "Install SDK for Active Broker":
+                broker = get_active_broker()
+                result = self.interface.show_loading(
+                    f"[bold cyan]Installing {broker.title()} SDK...[/bold cyan]",
+                    install_broker_sdk,
+                    broker,
+                )
+                if result:
+                    ok, message = result
+                    if ok:
+                        self.interface.print_success(message)
+                        changed = True
+                    else:
+                        self.interface.print_error(message)
+                continue
+
+            broker = self.interface.show_menu(
+                ["none", "groww", "upstox", "zerodha", "Back"],
+                "Select Broker SDK to Install",
+            )
+            if broker == "Back":
+                continue
+            result = self.interface.show_loading(
+                f"[bold cyan]Installing {broker.title()} SDK...[/bold cyan]",
+                install_broker_sdk,
+                broker,
+            )
+            if result:
+                ok, message = result
+                if ok:
+                    self.interface.print_success(message)
+                    changed = True
+                else:
+                    self.interface.print_error(message)
+
     def _set_broker_credentials(self) -> bool:
-        broker = self.interface.show_menu(["groww", "upstox", "zerodha", "Back"], "Broker Credential Target")
+        broker = self.interface.show_menu(["none", "groww", "upstox", "zerodha", "Back"], "Broker Credential Target")
         if broker == "Back":
+            return False
+        if broker == "none":
+            self.interface.print_info("No credentials required for broker-free mode.")
             return False
         if broker == "groww":
             return self._set_groww_credentials()
@@ -293,6 +450,9 @@ class SettingsMenu:
         current_kill = get_kill_switch_enabled()
         current_hours = get_live_market_hours_only()
         current_max_orders = get_live_max_orders_per_day()
+        current_dashboard_state_file = get_live_dashboard_state_file()
+        current_dashboard_control_file = get_live_dashboard_control_file()
+        current_dashboard_port = get_live_dashboard_port()
 
         mode = self.interface.input_prompt(f"Default mode (paper/live) [{current_mode}]: ").strip().lower() or current_mode
         refresh_raw = self.interface.input_prompt(f"Refresh seconds [{current_refresh}]: ").strip() or str(current_refresh)
@@ -316,6 +476,22 @@ class SettingsMenu:
             self.interface.input_prompt(f"Order journal sqlite file [{current_journal_file}]: ").strip()
             or current_journal_file
         )
+        dashboard_state_file = (
+            self.interface.input_prompt(
+                f"Live dashboard state JSON [{current_dashboard_state_file}]: "
+            ).strip()
+            or current_dashboard_state_file
+        )
+        dashboard_control_file = (
+            self.interface.input_prompt(
+                f"Live dashboard control JSON [{current_dashboard_control_file}]: "
+            ).strip()
+            or current_dashboard_control_file
+        )
+        dashboard_port_raw = (
+            self.interface.input_prompt(f"Live dashboard port [{current_dashboard_port}]: ").strip()
+            or str(current_dashboard_port)
+        )
         resume_raw = (
             self.interface.input_prompt(f"Auto resume session (true/false) [{str(current_resume).lower()}]: ").strip()
             or str(current_resume).lower()
@@ -333,6 +509,9 @@ class SettingsMenu:
             set_live_max_orders_per_day(int(max_orders_raw))
             set_live_session_state_file(state_file)
             set_order_journal_file(journal_file)
+            set_live_dashboard_state_file(dashboard_state_file)
+            set_live_dashboard_control_file(dashboard_control_file)
+            set_live_dashboard_port(int(dashboard_port_raw))
             set_live_auto_resume_session(resume_raw.lower() in {"true", "1", "yes", "y", "on"})
         except ValueError as error:
             self.interface.print_error(f"Invalid value: {error}")
@@ -368,6 +547,9 @@ class SettingsMenu:
             {"setting": "trading.live_max_orders_per_day", "value": str(get_live_max_orders_per_day())},
             {"setting": "trading.live_session_state_file", "value": get_live_session_state_file()},
             {"setting": "trading.order_journal_file", "value": get_order_journal_file()},
+            {"setting": "trading.live_dashboard_state_file", "value": get_live_dashboard_state_file()},
+            {"setting": "trading.live_dashboard_control_file", "value": get_live_dashboard_control_file()},
+            {"setting": "trading.live_dashboard_port", "value": str(get_live_dashboard_port())},
             {"setting": "trading.live_auto_resume_session", "value": str(get_live_auto_resume_session())},
         ]
         self.interface.display_response(rows, "Effective CLI Settings")

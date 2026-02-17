@@ -1,23 +1,56 @@
+import json
 import sys
+from datetime import datetime
+from pathlib import Path
+
+from rich.panel import Panel
+from rich.table import Table
 
 from trade_engine.brokers.broker_factory import BrokerFactory
+from trade_engine.brokers.sdk_manager import get_broker_sdk_status
 from trade_engine.cli.ai_advisor_menu import AIAdvisorMenu
 from trade_engine.cli.interface import CLInterface
 from trade_engine.cli.settings_menu import SettingsMenu
 from trade_engine.cli.strategy_menu import StrategyMenu
 from trade_engine.cli.visualization_menu import VisualizationMenu
+from trade_engine.config.broker_config import get_active_broker
+from trade_engine.config.trading_config import (
+    get_live_dashboard_control_file,
+    get_live_dashboard_port,
+    get_live_dashboard_state_file,
+    get_live_session_state_file,
+    get_order_journal_file,
+)
+from trade_engine.core.market_data_service import MarketDataService
 from trade_engine.core.portfolio_chatbot import PortfolioChatbot
 from trade_engine.core.vector_db_search import VectorDBSearch
+from trade_engine.engine.order_journal import OrderJournal
+from trade_engine.web.live_dashboard import LiveDashboardServer, write_dashboard_state
 
 
 class TraderCLI:
     def __init__(self):
         self.interface = CLInterface()
+        self.session_started_at = datetime.utcnow().isoformat()
+        self.market_data = MarketDataService()
+        self.dashboard_server: LiveDashboardServer | None = None
+        self.order_journal = OrderJournal(get_order_journal_file())
         self.settings_menu = SettingsMenu(self.interface)
         self._refresh_runtime_components(initial_boot=True)
 
     def _refresh_runtime_components(self, initial_boot: bool = False):
+        if self.dashboard_server:
+            self.dashboard_server.stop()
+            self.dashboard_server = None
         self.broker = BrokerFactory.create_broker()
+        self.order_journal = OrderJournal(get_order_journal_file())
+        status = get_broker_sdk_status(get_active_broker())
+        if not status["installed"]:
+            missing = ", ".join(status["missing_imports"])
+            self.interface.print_info(
+                f"Active broker SDK is not fully installed (missing: {missing}). "
+                "Open Settings -> Broker SDKs to install from CLI."
+            )
         self.vector_search = None
         self.chatbot = None
         self.viz_menu = VisualizationMenu(self.interface)
@@ -26,55 +59,152 @@ class TraderCLI:
         if not initial_boot:
             self.interface.print_success("Runtime services refreshed with latest CLI settings.")
 
-    def run(self):
-        self.interface.clear_screen()
-        self.interface.print_banner()
-        self.interface.typing_effect("Welcome to TradeEngine CLI!", delay=0.03, style="bold green")
-        self.interface.typing_effect("Use Settings to manage broker/API/runtime config.", delay=0.02, style="yellow")
+    @staticmethod
+    def _read_json(path: str) -> dict:
+        target = Path(path)
+        if not target.exists():
+            return {}
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
 
+    def _ensure_dashboard_server(self, open_browser: bool = False) -> str:
+        if self.dashboard_server:
+            return self.dashboard_server.url
+        self.dashboard_server = LiveDashboardServer(
+            host="127.0.0.1",
+            port=get_live_dashboard_port(),
+            state_file=get_live_dashboard_state_file(),
+            control_file=get_live_dashboard_control_file(),
+        )
+        return self.dashboard_server.start(open_browser=open_browser)
+
+    def _write_dashboard_fallback_state(self):
+        state_file = get_live_dashboard_state_file()
+        watchlist_symbols = ["RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS"]
+        watchlist_rows = self.market_data.get_batch_snapshot(watchlist_symbols, exchange="NSE", segment="CASH")
+        payload = {
+            "strategy_name": "No live strategy running",
+            "mode": "paper",
+            "watchlist": [
+                {
+                    "symbol": row.get("symbol"),
+                    "price": row.get("ltp"),
+                    "change_pct": row.get("change_pct"),
+                    "signal": 0,
+                    "signal_text": "HOLD",
+                    "buy_enabled": True,
+                    "sell_enabled": True,
+                }
+                for row in watchlist_rows
+            ],
+            "indices": self.market_data.get_indices_snapshot(),
+            "fno": self.market_data.get_fno_snapshot(),
+            "positions": [],
+            "open_orders": [],
+            "closed_orders": [],
+            "signal_triggers": [],
+            "session": {
+                "started_at": self.session_started_at,
+                "total_orders": 0,
+                "open_orders": 0,
+                "closed_orders": 0,
+            },
+            "message": "Market data fallback mode (no active live strategy session).",
+        }
+        write_dashboard_state(state_file, payload)
+
+    def _render_main_session_header(self):
+        state = self._read_json(get_live_session_state_file())
+        positions = state.get("positions", []) if isinstance(state.get("positions"), list) else []
+        symbols = sorted({str(row.get("symbol", "")).upper() for row in positions if row.get("symbol")})
+        summary = self.order_journal.get_session_summary(since_iso=self.session_started_at, limit=5)
+
+        grid = Table.grid(expand=True)
+        grid.add_column(justify="left")
+        grid.add_column(justify="left")
+        grid.add_column(justify="left")
+        grid.add_column(justify="left")
+        grid.add_row(
+            f"[cyan]Broker:[/cyan] {get_active_broker()}",
+            f"[green]Holdings:[/green] {len(symbols)}",
+            f"[yellow]Open Trades:[/yellow] {summary.get('open_orders', 0)}",
+            f"[magenta]Closed Trades:[/magenta] {summary.get('closed_orders', 0)}",
+        )
+        holdings_text = ", ".join(symbols[:8]) if symbols else "-"
+        if len(symbols) > 8:
+            holdings_text += f", +{len(symbols) - 8} more"
+        grid.add_row(
+            f"[dim]Session started:[/dim] {self.session_started_at}",
+            f"[dim]Holdings symbols:[/dim] {holdings_text}",
+            f"[dim]Orders total:[/dim] {summary.get('total_orders', 0)}",
+            "",
+        )
+        self.interface.console.print(Panel(grid, title="Current Session", border_style="cyan"))
+
+    def run(self):
         while True:
             try:
+                self.interface.clear_screen()
+                self.interface.print_banner()
+                self._render_main_session_header()
                 main_menu = [
-                    "Orders Management",
-                    "Portfolio and Positions",
-                    "Live Market Data",
-                    "Search Instruments",
-                    "AI Vector Search",
-                    "Portfolio Chatbot",
-                    "Visualize Stock",
-                    "Trading Strategies",
-                    "AI Strategy Advisor",
+                    "Quick Setup",
+                    "Orders",
+                    "Portfolio",
+                    "Market Data",
+                    "Search",
+                    "AI Search",
+                    "Chatbot",
+                    "Charts",
+                    "Strategies",
+                    "AI Advisor",
                     "Settings",
                     "Exit",
                 ]
-                choice = self.interface.show_menu(main_menu, "Main Menu")
+                choice = self.interface.show_menu(main_menu, "Main Menu", clear_screen=False)
 
-                if choice == "Orders Management":
+                if choice == "Quick Setup":
+                    changed = self.settings_menu.quick_setup()
+                    if changed:
+                        self._refresh_runtime_components()
+                elif choice == "Orders":
                     self.handle_orders_menu()
-                elif choice == "Portfolio and Positions":
+                elif choice == "Portfolio":
                     self.handle_portfolio_menu()
-                elif choice == "Live Market Data":
+                elif choice == "Market Data":
                     self.handle_live_data_menu()
-                elif choice == "Search Instruments":
+                elif choice == "Search":
                     self.handle_search_menu()
-                elif choice == "AI Vector Search":
+                elif choice == "AI Search":
                     self.handle_vector_search_menu()
-                elif choice == "Portfolio Chatbot":
+                elif choice == "Chatbot":
                     self.handle_chatbot_menu()
-                elif choice == "Visualize Stock":
+                elif choice == "Charts":
                     self.viz_menu.show()
-                elif choice == "Trading Strategies":
+                elif choice == "Strategies":
+                    if self.dashboard_server:
+                        self.dashboard_server.stop()
+                        self.dashboard_server = None
                     self.strategy_menu.show()
-                elif choice == "AI Strategy Advisor":
+                elif choice == "AI Advisor":
                     self.ai_advisor_menu.show()
                 elif choice == "Settings":
                     changed = self.settings_menu.show()
                     if changed:
                         self._refresh_runtime_components()
                 elif choice == "Exit":
+                    if self.dashboard_server:
+                        self.dashboard_server.stop()
+                        self.dashboard_server = None
                     self.interface.typing_effect("Thank you for using TradeEngine CLI!", delay=0.02, style="bold cyan")
                     sys.exit(0)
             except KeyboardInterrupt:
+                if self.dashboard_server:
+                    self.dashboard_server.stop()
+                    self.dashboard_server = None
                 self.interface.print_info("\nExiting...")
                 sys.exit(0)
             except Exception as error:
@@ -226,6 +356,9 @@ class TraderCLI:
 
     def handle_live_data_menu(self):
         menu_options = [
+            "Open Web Dashboard (localhost)",
+            "Refresh Dashboard Fallback Data",
+            "NSE + F&O Snapshot",
             "Get Live Quote",
             "Get LTP (Last Traded Price)",
             "Side-by-Side Comparison",
@@ -233,7 +366,36 @@ class TraderCLI:
         ]
         choice = self.interface.show_menu(menu_options, "Live Market Data")
 
-        if choice == "Get Live Quote":
+        if choice == "Open Web Dashboard (localhost)":
+            try:
+                self._write_dashboard_fallback_state()
+                url = self._ensure_dashboard_server(open_browser=True)
+                self.interface.print_success(f"Dashboard running at {url}")
+            except Exception as error:
+                self.interface.print_error(f"Unable to start dashboard: {error}")
+        elif choice == "Refresh Dashboard Fallback Data":
+            try:
+                self._write_dashboard_fallback_state()
+                self.interface.print_success("Dashboard fallback data refreshed.")
+            except Exception as error:
+                self.interface.print_error(f"Could not refresh fallback market data: {error}")
+        elif choice == "NSE + F&O Snapshot":
+            indices = self.interface.show_loading(
+                "[bold cyan]Fetching NSE indices...[/bold cyan]",
+                self.market_data.get_indices_snapshot,
+            )
+            fno = self.interface.show_loading(
+                "[bold cyan]Fetching F&O watch...[/bold cyan]",
+                self.market_data.get_fno_snapshot,
+            )
+            if indices or fno:
+                self.interface.display_side_by_side(
+                    indices or [{"status": "No index data"}],
+                    fno or [{"status": "No F&O data"}],
+                    left_title="NSE Index Snapshot",
+                    right_title="F&O Snapshot",
+                )
+        elif choice == "Get Live Quote":
             symbol = self.interface.input_prompt("Enter trading symbol: ")
             exchange = self.interface.input_prompt("Enter exchange (NSE/BSE): ", style="bold yellow") or "NSE"
             segment = self.interface.input_prompt("Enter segment (CASH/FUTURES): ", style="bold yellow") or "CASH"

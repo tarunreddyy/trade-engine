@@ -2,7 +2,7 @@ import json
 import os
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -12,7 +12,7 @@ load_dotenv()
 SETTINGS_FILE_ENV = "CLI_SETTINGS_FILE"
 DEFAULT_SETTINGS_FILE = "data/runtime/cli_settings.json"
 
-ENV_MAPPING: Dict[str, str] = {
+ENV_MAPPING: dict[str, str] = {
     "broker.active": "BROKER",
     "broker.groww.api_key": "GROWW_API_KEY",
     "broker.groww.api_secret": "GROWW_API_SECRET",
@@ -39,14 +39,17 @@ ENV_MAPPING: Dict[str, str] = {
     "trading.live_market_hours_only": "LIVE_MARKET_HOURS_ONLY",
     "trading.live_max_orders_per_day": "LIVE_MAX_ORDERS_PER_DAY",
     "trading.order_journal_file": "ORDER_JOURNAL_FILE",
+    "trading.live_dashboard_state_file": "LIVE_DASHBOARD_STATE_FILE",
+    "trading.live_dashboard_control_file": "LIVE_DASHBOARD_CONTROL_FILE",
+    "trading.live_dashboard_port": "LIVE_DASHBOARD_PORT",
     "visualization.default_period": "VIS_DEFAULT_PERIOD",
     "visualization.default_interval": "VIS_DEFAULT_INTERVAL",
     "visualization.default_chart_type": "VIS_DEFAULT_CHART_TYPE",
 }
 
-DEFAULT_SETTINGS: Dict[str, Any] = {
+DEFAULT_SETTINGS: dict[str, Any] = {
     "broker": {
-        "active": "groww",
+        "active": "none",
         "groww": {
             "api_key": "",
             "api_secret": "",
@@ -84,6 +87,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "live_market_hours_only": True,
         "live_max_orders_per_day": 40,
         "order_journal_file": "data/runtime/order_journal.sqlite",
+        "live_dashboard_state_file": "data/runtime/live_dashboard.json",
+        "live_dashboard_control_file": "data/runtime/live_dashboard_controls.json",
+        "live_dashboard_port": 8765,
     },
     "visualization": {
         "default_period": "1mo",
@@ -105,7 +111,7 @@ def _parse_bool(value: Any) -> bool:
     return text in {"1", "true", "yes", "y", "on"}
 
 
-def _apply_cast(value: Any, cast_type: Optional[type]) -> Any:
+def _apply_cast(value: Any, cast_type: type | None) -> Any:
     if cast_type is None:
         return value
     if cast_type is bool:
@@ -127,7 +133,7 @@ def _has_value(value: Any) -> bool:
     return True
 
 
-def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = deepcopy(base)
     for key, value in (override or {}).items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
@@ -137,7 +143,7 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     return merged
 
 
-def _get_nested(data: Dict[str, Any], dotted_key: str) -> Any:
+def _get_nested(data: dict[str, Any], dotted_key: str) -> Any:
     current: Any = data
     for part in dotted_key.split("."):
         if not isinstance(current, dict) or part not in current:
@@ -146,7 +152,7 @@ def _get_nested(data: Dict[str, Any], dotted_key: str) -> Any:
     return current
 
 
-def _set_nested(data: Dict[str, Any], dotted_key: str, value: Any) -> Dict[str, Any]:
+def _set_nested(data: dict[str, Any], dotted_key: str, value: Any) -> dict[str, Any]:
     parts = dotted_key.split(".")
     current = data
     for part in parts[:-1]:
@@ -157,7 +163,7 @@ def _set_nested(data: Dict[str, Any], dotted_key: str, value: Any) -> Dict[str, 
     return data
 
 
-def load_settings() -> Dict[str, Any]:
+def load_settings() -> dict[str, Any]:
     settings = deepcopy(DEFAULT_SETTINGS)
     path = _settings_file_path()
     if path.exists():
@@ -170,7 +176,7 @@ def load_settings() -> Dict[str, Any]:
     return settings
 
 
-def save_settings(settings: Dict[str, Any]) -> bool:
+def save_settings(settings: dict[str, Any]) -> bool:
     path = _settings_file_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -180,7 +186,7 @@ def save_settings(settings: Dict[str, Any]) -> bool:
         return False
 
 
-def get_setting(dotted_key: str, default: Any = None, cast_type: Optional[type] = None) -> Any:
+def get_setting(dotted_key: str, default: Any = None, cast_type: type | None = None) -> Any:
     settings = load_settings()
     value = _get_nested(settings, dotted_key)
     if _has_value(value):
@@ -211,7 +217,7 @@ def get_settings_file() -> str:
     return str(_settings_file_path())
 
 
-def mask_secret(value: Optional[str], keep: int = 4) -> str:
+def mask_secret(value: str | None, keep: int = 4) -> str:
     if value is None:
         return ""
     text = str(value).strip()

@@ -2,7 +2,7 @@ import json
 import re
 import sys
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import pandas as pd
 from rich import box
@@ -35,7 +35,7 @@ class CLInterface:
             time.sleep(delay)
         self.console.print()
 
-    def show_loading(self, message: str = "Processing request...", func: Optional[Callable] = None, *args, **kwargs):
+    def show_loading(self, message: str = "Processing request...", func: Callable | None = None, *args, **kwargs):
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -69,15 +69,54 @@ class CLInterface:
         table.add_row("/exit", "Exit (if available)")
         self.console.print(table)
 
-    def show_menu(self, options: list, title: str = "Menu") -> str:
-        self.console.print(f"\n[bold cyan]{title}[/bold cyan]")
-        self.console.print("=" * 70)
+    def _show_menu_table(self, options: list[str], title: str):
+        table = Table(title=title, box=box.ROUNDED, header_style="bold cyan")
+        table.add_column("#", style="green", justify="right")
+        table.add_column("Command", style="magenta")
+        table.add_column("Action", style="white")
         for idx, option in enumerate(options, 1):
-            self.console.print(f"[green]{idx}.[/green] {option}")
-        self.console.print("=" * 70)
-        self.console.print("[dim]Enter number or slash command (`/`).[/dim]")
+            table.add_row(str(idx), f"/{self._slugify(option)}", option)
+        self.console.print(table)
+        self.console.print("[dim]Type `/` to list commands, or enter number/slash command.[/dim]")
 
-        slug_map = {self._slugify(option): option for option in options}
+    def _resolve_slash_command(self, command: str, options: list[str], slug_map: dict[str, str]) -> str | None:
+        if command.isdigit():
+            index = int(command)
+            if 1 <= index <= len(options):
+                return options[index - 1]
+            return None
+
+        if command in slug_map:
+            return slug_map[command]
+
+        if command in {"back", "b"}:
+            for option in options:
+                if "back" in option.lower():
+                    return option
+            return None
+        if command in {"exit", "quit", "q"}:
+            for option in options:
+                if option.lower() == "exit":
+                    return option
+            return None
+
+        prefix_matches = [option for slug, option in slug_map.items() if slug.startswith(command)]
+        if len(prefix_matches) == 1:
+            return prefix_matches[0]
+        if len(prefix_matches) > 1:
+            self.console.print(
+                "[yellow]Multiple matches:[/yellow] " + ", ".join(sorted(set(prefix_matches)))
+            )
+            return None
+        return None
+
+    def show_menu(self, options: list, title: str = "Menu", clear_screen: bool = True) -> str:
+        if clear_screen:
+            self.console.clear()
+        normalized_options = [str(option) for option in options]
+        self._show_menu_table(normalized_options, title)
+
+        slug_map = {self._slugify(option): option for option in normalized_options}
 
         while True:
             try:
@@ -85,32 +124,21 @@ class CLInterface:
                 if not raw:
                     continue
 
-                if raw == "/":
-                    self._show_menu_palette(options, title)
+                if raw in {"/", "/?", "/help"}:
+                    self._show_menu_palette(normalized_options, title)
                     continue
 
                 if raw.startswith("/"):
                     command = raw[1:].strip().lower()
-                    if command.isdigit():
-                        index = int(command)
-                        if 1 <= index <= len(options):
-                            return options[index - 1]
-                    if command in slug_map:
-                        return slug_map[command]
-                    if command in {"back", "b"}:
-                        for option in options:
-                            if "back" in option.lower():
-                                return option
-                    if command in {"exit", "quit", "q"}:
-                        for option in options:
-                            if option.lower() == "exit":
-                                return option
+                    resolved = self._resolve_slash_command(command, normalized_options, slug_map)
+                    if resolved is not None:
+                        return resolved
                     self.console.print("[red]Unknown slash command. Type `/` to list commands.[/red]")
                     continue
 
                 choice_num = int(raw)
-                if 1 <= choice_num <= len(options):
-                    return options[choice_num - 1]
+                if 1 <= choice_num <= len(normalized_options):
+                    return normalized_options[choice_num - 1]
                 self.console.print("[red]Invalid choice. Please try again.[/red]")
             except ValueError:
                 self.console.print("[red]Please enter a valid number or slash command.[/red]")
@@ -122,7 +150,7 @@ class CLInterface:
         self,
         prompt: str,
         style: str = "bold yellow",
-        slash_commands: Optional[dict[str, str]] = None,
+        slash_commands: dict[str, str] | None = None,
     ) -> str:
         while True:
             value = self.console.input(f"[{style}]{prompt}[/{style}]")
@@ -140,8 +168,8 @@ class CLInterface:
         self,
         data: Any,
         title: str = "Response",
-        key_columns: Optional[list] = None,
-        max_width: Optional[int] = None,
+        key_columns: list | None = None,
+        max_width: int | None = None,
     ) -> Table:
         table = Table(title=title, box=box.ROUNDED, show_header=True, header_style="bold magenta")
         exclude_columns = ["depth"]
@@ -176,7 +204,7 @@ class CLInterface:
             table.add_row(*[str(val) for val in row.values])
         return table
 
-    def display_response(self, data: Any, title: str = "Response", key_columns: Optional[list] = None):
+    def display_response(self, data: Any, title: str = "Response", key_columns: list | None = None):
         table = self.create_table(data, title, key_columns)
         panel = Panel(table, title=f"[bold green]{title}[/bold green]", border_style="green", padding=(1, 2))
         self.console.print(panel)
@@ -187,8 +215,8 @@ class CLInterface:
         right_data: Any,
         left_title: str = "Left",
         right_title: str = "Right",
-        left_key_columns: Optional[list] = None,
-        right_key_columns: Optional[list] = None,
+        left_key_columns: list | None = None,
+        right_key_columns: list | None = None,
     ):
         terminal_width = self.console.width or 120
         available_width = terminal_width - 10

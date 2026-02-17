@@ -2,7 +2,7 @@
 import secrets
 import string
 import sys
-from typing import Any, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -24,9 +24,9 @@ class GrowwBroker(BaseBroker):
 
     def __init__(
         self,
-        groww_api_key: Optional[str] = None,
-        groww_api_secret: Optional[str] = None,
-        auth_token: Optional[str] = None,
+        groww_api_key: str | None = None,
+        groww_api_secret: str | None = None,
+        auth_token: str | None = None,
     ):
         self.groww_api_key = groww_api_key or get_groww_api_key()
         self.groww_api_secret = groww_api_secret or get_groww_api_secret()
@@ -35,7 +35,12 @@ class GrowwBroker(BaseBroker):
     @staticmethod
     def _get_groww_api_class():
         # Lazy SDK import to keep other brokers decoupled from Groww dependency.
-        from growwapi import GrowwAPI
+        try:
+            from growwapi import GrowwAPI
+        except ModuleNotFoundError as error:
+            raise ModuleNotFoundError(
+                "Groww SDK not installed. Open CLI Settings -> Broker SDKs and install Groww SDK."
+            ) from error
 
         return GrowwAPI
 
@@ -44,12 +49,12 @@ class GrowwBroker(BaseBroker):
         groww_api = self._get_groww_api_class()
         return groww_api(token)
 
-    def _map_exchange(self, groww_client, exchange: Optional[str]):
+    def _map_exchange(self, groww_client, exchange: str | None):
         if exchange and exchange.upper() == "BSE":
             return groww_client.EXCHANGE_BSE
         return groww_client.EXCHANGE_NSE
 
-    def _map_segment(self, groww_client, segment: Optional[str]):
+    def _map_segment(self, groww_client, segment: str | None):
         if segment and segment.upper() in {"FUTURES", "FNO"}:
             return groww_client.SEGMENT_FNO
         return groww_client.SEGMENT_CASH
@@ -70,7 +75,12 @@ class GrowwBroker(BaseBroker):
                 logging.error(msg)
                 raise CustomException(msg, sys)
 
-            import pyotp
+            try:
+                import pyotp
+            except ModuleNotFoundError as error:
+                raise ModuleNotFoundError(
+                    "pyotp is missing for Groww authentication. Install Groww SDK from CLI Settings."
+                ) from error
 
             totp = pyotp.TOTP(self.groww_api_secret).now()
             groww_api = self._get_groww_api_class()
@@ -211,7 +221,7 @@ class GrowwBroker(BaseBroker):
         except Exception as e:
             raise CustomException(e, sys) from e
 
-    def get_positions(self, segment: Optional[str] = None) -> Any:
+    def get_positions(self, segment: str | None = None) -> Any:
         try:
             groww = self._get_client()
             if segment:
@@ -259,7 +269,7 @@ class GrowwBroker(BaseBroker):
         except Exception as e:
             raise CustomException(e, sys) from e
 
-    def search_instrument(self, symbol: str, exchange: Optional[str] = None) -> Any:
+    def search_instrument(self, symbol: str, exchange: str | None = None) -> Any:
         try:
             groww = self._get_client()
             normalized = symbol.upper()

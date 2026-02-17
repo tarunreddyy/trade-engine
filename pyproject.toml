@@ -69,6 +69,7 @@ dev = [
 
 [project.scripts]
 trade-engine = "trade_engine.cli.app:main"
+trade_engine = "trade_engine.cli.app:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

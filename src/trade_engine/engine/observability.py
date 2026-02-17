@@ -1,7 +1,6 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
 
 
 class RuntimeMetrics:
@@ -34,8 +33,8 @@ class RuntimeMetrics:
         realized_pnl: float,
         open_positions: int,
         orders_today: int,
-        recent_events: List[str],
-    ) -> Dict[str, float]:
+        recent_events: list[str],
+    ) -> dict[str, float]:
         self.max_equity = max(self.max_equity, equity)
         self.min_equity = min(self.min_equity, equity)
         drawdown = 0.0
@@ -59,7 +58,7 @@ class RuntimeMetrics:
             "recent_events": recent_events[-10:],
         }
 
-    def export(self, payload: Dict[str, float]) -> bool:
+    def export(self, payload: dict[str, float]) -> bool:
         try:
             path = Path(self.output_file)
             path.parent.mkdir(parents=True, exist_ok=True)

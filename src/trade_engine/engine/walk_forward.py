@@ -1,6 +1,4 @@
-from typing import Dict, Optional
-
-import pandas as pd
+﻿import pandas as pd
 
 from trade_engine.strategies.backtester import Backtester
 
@@ -32,7 +30,7 @@ class WalkForwardEvaluator:
         strategy,
         initial_capital: float,
         windows: int = 3,
-    ) -> Optional[Dict[str, float]]:
+    ) -> dict[str, float] | None:
         if df is None or df.empty or len(df) < 80:
             return None
 
@@ -71,3 +69,4 @@ class WalkForwardEvaluator:
             "initial_capital": initial_capital,
             "oos_windows": count,
         }
+

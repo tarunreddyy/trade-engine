@@ -4,12 +4,32 @@ Broker-agnostic command-line trading engine for orders, portfolio, strategy runt
 
 ## Install
 
-### From source
+### One-line install (recommended)
 ```bash
-pip install -e ".[groww]"
+pipx install trade-engine-cli
 ```
 
-Broker extras:
+If installing directly from this repository:
+```bash
+pipx install "git+https://github.com/tarunreddyy/trade-engine.git"
+```
+
+Run:
+```bash
+trade_engine
+```
+
+Also available:
+```bash
+trade-engine
+```
+
+### From source
+```bash
+pip install -e .
+```
+
+Optional broker extras (you can also install broker SDKs later from CLI Settings -> Broker SDKs):
 - `.[groww]`
 - `.[upstox]`
 - `.[zerodha]`
@@ -17,13 +37,17 @@ Broker extras:
 
 ### From PyPI
 ```bash
-pip install "trade-engine-cli[groww]"
+pip install trade-engine-cli
 ```
 
 ### Windows EXE
 Download `trade-engine.exe` from GitHub Releases.
 
 ## Run
+```bash
+trade_engine
+```
+or
 ```bash
 trade-engine
 ```
@@ -32,6 +56,12 @@ or
 python main.py
 ```
 
+First-time users:
+- Open `Quick Setup` from Main Menu
+- Select broker
+- Install broker SDK from CLI prompt
+- Enter broker credentials
+
 ## CLI Navigation
 
 - All menus support:
@@ -39,13 +69,15 @@ python main.py
   - slash commands (`/1`, `/orders-management`, etc.)
 - Type `/` in any menu to open the command palette.
 - In chatbot and live runtime prompts, `/` shows available commands.
+- Slash matching supports direct command, numeric, and unique prefix resolution.
 
 ## Configure Everything in CLI
 
 Main Menu -> `Settings`
 
 You can configure:
-- Active broker (`groww`, `upstox`, `zerodha`)
+- Active broker (`none`, `groww`, `upstox`, `zerodha`)
+- Broker SDK install/load (`Settings` -> `Broker SDKs`)
 - Broker credentials/secrets
 - LLM provider and API keys
 - Pinecone API key and index
@@ -72,7 +104,7 @@ Supported keys (settable from CLI directly or via `Settings -> Advanced Key/Valu
 
 | Dotted Key | Env Fallback | Default |
 |---|---|---|
-| `broker.active` | `BROKER` | `groww` |
+| `broker.active` | `BROKER` | `none` |
 | `broker.groww.api_key` | `GROWW_API_KEY` | `""` |
 | `broker.groww.api_secret` | `GROWW_API_SECRET` | `""` |
 | `broker.groww.access_token` | `GROWW_ACCESS_TOKEN` | `""` |
@@ -101,16 +133,26 @@ Supported keys (settable from CLI directly or via `Settings -> Advanced Key/Valu
 | `trading.live_market_hours_only` | `LIVE_MARKET_HOURS_ONLY` | `true` |
 | `trading.live_max_orders_per_day` | `LIVE_MAX_ORDERS_PER_DAY` | `40` |
 | `trading.order_journal_file` | `ORDER_JOURNAL_FILE` | `data/runtime/order_journal.sqlite` |
+| `trading.live_dashboard_state_file` | `LIVE_DASHBOARD_STATE_FILE` | `data/runtime/live_dashboard.json` |
+| `trading.live_dashboard_control_file` | `LIVE_DASHBOARD_CONTROL_FILE` | `data/runtime/live_dashboard_controls.json` |
+| `trading.live_dashboard_port` | `LIVE_DASHBOARD_PORT` | `8765` |
 
-## Real-Time Dashboard in CLI
+## Live Dashboard (Web + CLI)
 
 Open:
 - `Trading Strategies` -> `Live Trading Console`
 
-Dashboard panels in terminal:
+Web dashboard:
+- URL: `http://127.0.0.1:8765` (port configurable in CLI settings)
+- Shows strategy watchlist, live positions, session open/closed orders, signal triggers (latest first), NSE indexes, and F&O snapshot
+- Per-symbol trigger controls:
+  - toggle BUY and SELL for each watchlist symbol directly in the dashboard
+  - latest trigger events stay at the top
+
+CLI live screen:
 - Runtime controls (mode, buy/sell toggles, SL/TP, risk, kill switch, market-hours guard, orders/day)
 - Account summary (cash, equity, realized PnL, open positions)
-- Watchlist snapshot (price, change, signal, position, unrealized PnL)
+- Watchlist snapshot (price, change, signal, per-symbol BUY/SELL enabled flags, position, unrealized PnL)
 - Recent events log
 - Equity trend sparkline
 
@@ -122,11 +164,23 @@ Live runtime commands:
 - `/mode paper|live`
 - `/add <SYM>`, `/remove <SYM>`
 - `/clearstate`, `/help`, `/quit`
+- Short aliases: `/b`, `/s`, `/r`, `/m`, `/q`, `/h`, `/ls`, `/pt`, `/mp`, `/ko`, `/mh`, `/mo`, `/a`, `/rm`, `/cs`
+
+The CLI live view is static and top-anchored (Rich `Live` full-screen) so it does not keep appending new lines.
+
+Main menu session header:
+- top panel shows current holdings symbols (from session state), open trades, closed trades, and total orders for the current CLI session.
+
+Broker-free mode:
+- set broker to `none` in `Quick Setup` or `Settings`
+- market data remains available through Yahoo Finance (`yfinance`) for quotes/search/live dashboard snapshots without any broker SDK.
 
 Runtime artifacts:
 - session state: `data/runtime/live_session_state.json`
 - order journal: `data/runtime/order_journal.sqlite`
 - metrics snapshot: `data/runtime/metrics_latest.json`
+- dashboard state: `data/runtime/live_dashboard.json`
+- dashboard controls: `data/runtime/live_dashboard_controls.json`
 
 ## Build
 
@@ -171,6 +225,7 @@ trade-engine/
 |  |- core/
 |  |- engine/
 |  |- strategies/
+|  |- web/
 |  |- exception/
 |  '- logging/
 |- data/

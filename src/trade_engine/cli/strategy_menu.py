@@ -1,4 +1,6 @@
-﻿from trade_engine.core.stock_visualizer import StockVisualizer
+﻿import yfinance as yf
+
+from trade_engine.core.stock_visualizer import StockVisualizer
 from trade_engine.core.live_trading_console import LiveTradingConsole
 from trade_engine.strategies import STRATEGY_DETAILS, STRATEGY_REGISTRY
 from trade_engine.strategies.strategy_combiner import StrategyCombiner
@@ -18,6 +20,7 @@ from trade_engine.config.trading_config import (
     get_live_default_risk_per_trade_pct,
     get_live_default_stop_loss_pct,
     get_live_default_take_profit_pct,
+    get_live_dashboard_port,
     set_kill_switch_enabled,
     set_live_default_max_position_pct,
     set_live_market_hours_only,
@@ -357,6 +360,8 @@ class StrategyMenu:
         max_orders_raw = self.interface.input_prompt(
             f"Max orders per day [{default_max_orders}]: "
         ) or str(default_max_orders)
+        dashboard_raw = self.interface.input_prompt("Launch web dashboard (Y/n): ") or "y"
+        browser_raw = self.interface.input_prompt("Open dashboard in browser automatically? (Y/n): ") or "y"
 
         symbols = [item.strip().upper() for item in symbols_raw.split(",") if item.strip()]
         if not symbols:
@@ -380,6 +385,12 @@ class StrategyMenu:
         if mode not in {"paper", "live"}:
             self.interface.print_error("Invalid mode. Using paper mode.")
             mode = "paper"
+        launch_web_dashboard = dashboard_raw.strip().lower() not in {"n", "no", "off", "0"}
+        open_dashboard_browser = browser_raw.strip().lower() not in {"n", "no", "off", "0"}
+        if launch_web_dashboard:
+            self.interface.print_info(
+                f"Web dashboard URL: http://127.0.0.1:{get_live_dashboard_port()}"
+            )
 
         save_defaults = (self.interface.input_prompt("Save these values as CLI defaults? (y/N): ") or "n").strip().lower()
         if save_defaults in {"y", "yes"}:
@@ -403,6 +414,8 @@ class StrategyMenu:
                 period=period,
                 interval=interval,
                 execution_mode=mode,
+                launch_web_dashboard=launch_web_dashboard,
+                open_dashboard_browser=open_dashboard_browser,
             )
         except KeyboardInterrupt:
             self.interface.print_info("Stopped live trading console.")
@@ -543,5 +556,7 @@ class StrategyMenu:
 
         if summary:
             self.interface.display_response(summary, "Strategy Average Performance Ranking")
+
+
 
 

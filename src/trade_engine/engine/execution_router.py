@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any
 
 from trade_engine.brokers.base_broker import BaseBroker
 from trade_engine.engine.order_journal import OrderJournal
@@ -14,15 +14,15 @@ class ExecutionRouter:
     def __init__(
         self,
         mode: str = "paper",
-        broker: Optional[BaseBroker] = None,
-        risk_engine: Optional[RiskEngine] = None,
-        journal: Optional[OrderJournal] = None,
+        broker: BaseBroker | None = None,
+        risk_engine: RiskEngine | None = None,
+        journal: OrderJournal | None = None,
     ):
         self.mode = (mode or "paper").lower()
         self.broker = broker
         self.risk_engine = risk_engine
         self.journal = journal or OrderJournal()
-        self._last_order_at: Dict[str, datetime] = {}
+        self._last_order_at: dict[str, datetime] = {}
         self._duplicate_window = timedelta(seconds=20)
         self._orders_today = 0
         self._orders_day: date = datetime.utcnow().date()
@@ -96,7 +96,7 @@ class ExecutionRouter:
         self._last_order_at[key] = now
         return False
 
-    def _apply_risk_guard(self, side: str, is_exit: bool) -> Dict[str, Any]:
+    def _apply_risk_guard(self, side: str, is_exit: bool) -> dict[str, Any]:
         self._reset_order_counter_if_new_day()
         if not self.risk_engine:
             return {}
@@ -115,7 +115,7 @@ class ExecutionRouter:
             "orders_today": self._orders_today,
         }
 
-    def _record_order(self, result: Dict[str, Any], is_exit: bool, broker_payload: Optional[Dict[str, Any]] = None) -> int:
+    def _record_order(self, result: dict[str, Any], is_exit: bool, broker_payload: dict[str, Any] | None = None) -> int:
         return self.journal.record_order(
             symbol=result.get("symbol", ""),
             side=result.get("side", ""),
@@ -138,7 +138,7 @@ class ExecutionRouter:
         exchange: str = "NSE",
         segment: str = "CASH",
         is_exit: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         side = side.upper()
         dedupe_key = f"{symbol}:{side}:{'EXIT' if is_exit else 'ENTRY'}"
         if self._is_duplicate(dedupe_key):
@@ -237,7 +237,7 @@ class ExecutionRouter:
         result["journal_id"] = self._record_order(result, is_exit=is_exit)
         return result
 
-    def reconcile_order_statuses(self) -> Dict[str, Any]:
+    def reconcile_order_statuses(self) -> dict[str, Any]:
         """Poll broker order status for open live orders and update journal."""
         if self.mode != "live" or not self.broker:
             return {"checked": 0, "updated": 0, "rows": []}

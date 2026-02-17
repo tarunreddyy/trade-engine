@@ -2,7 +2,7 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from trade_engine.config.trading_config import get_order_journal_file
 
@@ -12,7 +12,7 @@ class OrderJournal:
 
     FINAL_STATUSES = {"FILLED", "COMPLETE", "CANCELLED", "REJECTED", "FAILED"}
 
-    def __init__(self, db_file: Optional[str] = None):
+    def __init__(self, db_file: str | None = None):
         self.db_file = db_file or get_order_journal_file()
         self._init_db()
 
@@ -57,7 +57,7 @@ class OrderJournal:
         status: str,
         reason: str = "",
         broker_order_id: str = "",
-        broker_payload: Optional[Dict[str, Any]] = None,
+        broker_payload: dict[str, Any] | None = None,
         is_exit: bool = False,
     ) -> int:
         now = datetime.utcnow().isoformat()
@@ -93,7 +93,7 @@ class OrderJournal:
         journal_id: int,
         status: str,
         reason: str = "",
-        broker_payload: Optional[Dict[str, Any]] = None,
+        broker_payload: dict[str, Any] | None = None,
     ) -> bool:
         now = datetime.utcnow().isoformat()
         payload = json.dumps(broker_payload or {}, default=str)
@@ -109,7 +109,7 @@ class OrderJournal:
             conn.commit()
             return cursor.rowcount > 0
 
-    def get_open_live_orders(self, limit: int = 200) -> List[Dict[str, Any]]:
+    def get_open_live_orders(self, limit: int = 200) -> list[dict[str, Any]]:
         statuses = ("SENT", "OPEN", "PARTIAL")
         with self._connect() as conn:
             rows = conn.execute(
@@ -140,3 +140,63 @@ class OrderJournal:
                 }
             )
         return result
+
+    def get_session_summary(self, since_iso: str, limit: int = 20) -> dict[str, Any]:
+        with self._connect() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM orders WHERE created_at >= ?",
+                (since_iso,),
+            ).fetchone()[0]
+            open_count = conn.execute(
+                "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND status NOT IN (?, ?, ?, ?, ?)",
+                (since_iso, *self.FINAL_STATUSES),
+            ).fetchone()[0]
+            closed_count = conn.execute(
+                "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND status IN (?, ?, ?, ?, ?)",
+                (since_iso, *self.FINAL_STATUSES),
+            ).fetchone()[0]
+            open_rows = conn.execute(
+                """
+                SELECT id, created_at, symbol, side, quantity, price, status, mode
+                FROM orders
+                WHERE created_at >= ? AND status NOT IN (?, ?, ?, ?, ?)
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (since_iso, *self.FINAL_STATUSES, int(limit)),
+            ).fetchall()
+            closed_rows = conn.execute(
+                """
+                SELECT id, created_at, symbol, side, quantity, price, status, mode
+                FROM orders
+                WHERE created_at >= ? AND status IN (?, ?, ?, ?, ?)
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (since_iso, *self.FINAL_STATUSES, int(limit)),
+            ).fetchall()
+
+        def _format(rows: list[tuple]) -> list[dict[str, Any]]:
+            payload: list[dict[str, Any]] = []
+            for row in rows:
+                payload.append(
+                    {
+                        "id": int(row[0]),
+                        "created_at": row[1],
+                        "symbol": row[2],
+                        "side": row[3],
+                        "quantity": int(row[4]),
+                        "price": float(row[5]),
+                        "status": row[6],
+                        "mode": row[7],
+                    }
+                )
+            return payload
+
+        return {
+            "total_orders": int(total),
+            "open_orders": int(open_count),
+            "closed_orders": int(closed_count),
+            "open_rows": _format(open_rows),
+            "closed_rows": _format(closed_rows),
+        }

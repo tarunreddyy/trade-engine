@@ -111,6 +111,41 @@ def set_order_journal_file(path: str) -> bool:
     return set_setting("trading.order_journal_file", value)
 
 
+def get_live_dashboard_state_file() -> str:
+    value = str(
+        get_setting("trading.live_dashboard_state_file", "data/runtime/live_dashboard.json", str)
+        or "data/runtime/live_dashboard.json"
+    ).strip()
+    return value or "data/runtime/live_dashboard.json"
+
+
+def set_live_dashboard_state_file(path: str) -> bool:
+    value = str(path or "").strip() or "data/runtime/live_dashboard.json"
+    return set_setting("trading.live_dashboard_state_file", value)
+
+
+def get_live_dashboard_control_file() -> str:
+    value = str(
+        get_setting("trading.live_dashboard_control_file", "data/runtime/live_dashboard_controls.json", str)
+        or "data/runtime/live_dashboard_controls.json"
+    ).strip()
+    return value or "data/runtime/live_dashboard_controls.json"
+
+
+def set_live_dashboard_control_file(path: str) -> bool:
+    value = str(path or "").strip() or "data/runtime/live_dashboard_controls.json"
+    return set_setting("trading.live_dashboard_control_file", value)
+
+
+def get_live_dashboard_port() -> int:
+    return max(1024, min(65535, int(get_setting("trading.live_dashboard_port", 8765, int))))
+
+
+def set_live_dashboard_port(port: int) -> bool:
+    value = max(1024, min(65535, int(port)))
+    return set_setting("trading.live_dashboard_port", value)
+
+
 # Backward compatibility constants.
 LIVE_DEFAULT_MODE = get_live_default_mode()
 LIVE_DEFAULT_REFRESH_SECONDS = get_live_default_refresh_seconds()
@@ -124,3 +159,6 @@ KILL_SWITCH_ENABLED = get_kill_switch_enabled()
 LIVE_MARKET_HOURS_ONLY = get_live_market_hours_only()
 LIVE_MAX_ORDERS_PER_DAY = get_live_max_orders_per_day()
 ORDER_JOURNAL_FILE = get_order_journal_file()
+LIVE_DASHBOARD_STATE_FILE = get_live_dashboard_state_file()
+LIVE_DASHBOARD_CONTROL_FILE = get_live_dashboard_control_file()
+LIVE_DASHBOARD_PORT = get_live_dashboard_port()

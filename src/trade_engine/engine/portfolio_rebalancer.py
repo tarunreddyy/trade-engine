@@ -1,16 +1,13 @@
-﻿from typing import Dict, List, Optional
-
-
-class PortfolioRebalancer:
+﻿class PortfolioRebalancer:
     """Computes drift and order suggestions to rebalance portfolio weights."""
 
     @staticmethod
-    def parse_target_weights(raw: str) -> Dict[str, float]:
+    def parse_target_weights(raw: str) -> dict[str, float]:
         """
         Parse input like: RELIANCE.NS=25,TCS.NS=20,INFY.NS=15
         Returns decimals: {"RELIANCE.NS": 0.25, ...}
         """
-        weights: Dict[str, float] = {}
+        weights: dict[str, float] = {}
         if not raw.strip():
             return weights
         for chunk in raw.split(","):
@@ -28,7 +25,7 @@ class PortfolioRebalancer:
         return weights
 
     @staticmethod
-    def _normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
+    def _normalize_weights(weights: dict[str, float]) -> dict[str, float]:
         if not weights:
             return {}
         total = sum(max(weight, 0.0) for weight in weights.values())
@@ -41,8 +38,8 @@ class PortfolioRebalancer:
     def create_rebalance_plan(
         self,
         portfolio_state: dict,
-        prices: Dict[str, float],
-        target_weights: Dict[str, float],
+        prices: dict[str, float],
+        target_weights: dict[str, float],
         drift_threshold_pct: float = 2.0,
     ) -> dict:
         drift_threshold = abs(drift_threshold_pct) / 100.0
@@ -58,7 +55,7 @@ class PortfolioRebalancer:
                 "allocations": [],
             }
 
-        current_values: Dict[str, float] = {}
+        current_values: dict[str, float] = {}
         for pos in portfolio_state.get("positions", []):
             symbol = str(pos.get("symbol", "")).upper()
             if not symbol:
@@ -67,8 +64,8 @@ class PortfolioRebalancer:
             current_values[symbol] = current_values.get(symbol, 0.0) + market_value
 
         symbols = sorted(set(current_values.keys()) | set(normalized_targets.keys()))
-        allocations: List[dict] = []
-        actions: List[dict] = []
+        allocations: list[dict] = []
+        actions: list[dict] = []
         available_cash = cash
 
         for symbol in symbols:
@@ -144,8 +141,8 @@ class PortfolioRebalancer:
         }
 
     @staticmethod
-    def latest_prices_from_rows(rows: List[dict]) -> Dict[str, float]:
-        prices: Dict[str, float] = {}
+    def latest_prices_from_rows(rows: list[dict]) -> dict[str, float]:
+        prices: dict[str, float] = {}
         for row in rows:
             symbol = str(row.get("symbol", "")).upper()
             price = row.get("price")
@@ -156,9 +153,9 @@ class PortfolioRebalancer:
                     continue
         return prices
 
-    def execute_plan(self, console, actions: List[dict]) -> List[dict]:
+    def execute_plan(self, console, actions: list[dict]) -> list[dict]:
         """Execute rebalance actions through live console order router."""
-        results: List[dict] = []
+        results: list[dict] = []
         for action in actions:
             result = console.execute_manual_order(
                 symbol=action["symbol"],
@@ -171,5 +168,6 @@ class PortfolioRebalancer:
             merged["execution"] = result
             results.append(merged)
         return results
+
 
 

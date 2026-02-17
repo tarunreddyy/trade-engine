@@ -1,5 +1,5 @@
 ﻿from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 
 class BaseBroker(ABC):
@@ -67,7 +67,7 @@ class BaseBroker(ABC):
         """Fetch portfolio holdings."""
 
     @abstractmethod
-    def get_positions(self, segment: Optional[str] = None) -> Any:
+    def get_positions(self, segment: str | None = None) -> Any:
         """Fetch positions, optionally by segment."""
 
     @abstractmethod
@@ -89,7 +89,7 @@ class BaseBroker(ABC):
         """Fetch LTP (Last Traded Price)."""
 
     @abstractmethod
-    def search_instrument(self, symbol: str, exchange: Optional[str] = None) -> Any:
+    def search_instrument(self, symbol: str, exchange: str | None = None) -> Any:
         """Search instrument metadata."""
 
 

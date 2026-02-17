@@ -1,5 +1,5 @@
 ﻿from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yfinance as yf
 
@@ -39,7 +39,7 @@ class RecommendationEngine:
             return None
         return idx, signals.iloc[-1]
 
-    def _score_candidate(self, df, idx, signal_value: int, symbol: str) -> Dict[str, Any]:
+    def _score_candidate(self, df, idx, signal_value: int, symbol: str) -> dict[str, Any]:
         close = float(df.loc[idx, "Close"])
         idx_pos = df.index.get_loc(idx)
         recent_return = 0.0
@@ -73,7 +73,7 @@ class RecommendationEngine:
         period: str,
         interval: str,
         lookback_bars: int,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         try:
             df = self._fetch_history(symbol, period=period, interval=interval)
             if df is None or len(df) < 50:
@@ -103,15 +103,15 @@ class RecommendationEngine:
     def recommend(
         self,
         strategy,
-        universe: Optional[List[str]] = None,
+        universe: list[str] | None = None,
         top_n: int = 25,
         period: str = "6mo",
         interval: str = "1d",
         lookback_bars: int = 5,
-    ) -> Dict[str, List[Dict[str, Any]]]:
+    ) -> dict[str, list[dict[str, Any]]]:
         universe = universe or DEFAULT_SCAN_UNIVERSE
-        buy_candidates: List[Dict[str, Any]] = []
-        sell_candidates: List[Dict[str, Any]] = []
+        buy_candidates: list[dict[str, Any]] = []
+        sell_candidates: list[dict[str, Any]] = []
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = [
@@ -143,5 +143,6 @@ class RecommendationEngine:
             "sell": sell_candidates[:top_n],
             "universe_size": len(universe),
         }
+
 
 

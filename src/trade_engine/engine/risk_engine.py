@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from datetime import datetime, time
-from typing import Optional, Tuple
 from zoneinfo import ZoneInfo
 
 
@@ -42,7 +41,7 @@ class RiskEngine:
         current_exposure: float,
         entry_price: float,
         quantity: int,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         if quantity <= 0:
             return False, "Quantity is zero."
 
@@ -64,7 +63,7 @@ class RiskEngine:
         max_loss_abs = self.config.initial_capital * self.config.max_daily_loss_pct
         return realized_pnl <= -abs(max_loss_abs)
 
-    def check_exit(self, entry_price: float, current_price: float) -> Tuple[bool, str]:
+    def check_exit(self, entry_price: float, current_price: float) -> tuple[bool, str]:
         if entry_price <= 0:
             return False, "NONE"
 
@@ -75,7 +74,7 @@ class RiskEngine:
             return True, "TAKE_PROFIT"
         return False, "NONE"
 
-    def check_exit_short(self, entry_price: float, current_price: float) -> Tuple[bool, str]:
+    def check_exit_short(self, entry_price: float, current_price: float) -> tuple[bool, str]:
         if entry_price <= 0:
             return False, "NONE"
 
@@ -86,7 +85,7 @@ class RiskEngine:
             return True, "TAKE_PROFIT"
         return False, "NONE"
 
-    def is_market_open(self, now_utc: Optional[datetime] = None) -> bool:
+    def is_market_open(self, now_utc: datetime | None = None) -> bool:
         now_utc = now_utc or datetime.utcnow()
         now_ist = now_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo(self.IST_ZONE))
         if now_ist.weekday() >= 5:
@@ -99,8 +98,8 @@ class RiskEngine:
         mode: str,
         orders_today: int,
         is_exit: bool = False,
-        now_utc: Optional[datetime] = None,
-    ) -> Tuple[bool, str]:
+        now_utc: datetime | None = None,
+    ) -> tuple[bool, str]:
         if self.config.kill_switch_enabled and not is_exit:
             return False, "kill_switch_enabled"
 

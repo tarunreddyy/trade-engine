@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from trade_engine.brokers.base_broker import BaseBroker
 from trade_engine.config.settings_store import get_setting
@@ -15,7 +15,7 @@ class ZerodhaBroker(BaseBroker):
     def _not_implemented(method_name: str):
         raise NotImplementedError(
             f"ZerodhaBroker.{method_name} is not implemented yet. "
-            "Switch broker to groww in CLI Settings or implement the Zerodha adapter."
+            "Install/load Zerodha SDK from CLI Settings -> Broker SDKs, or switch broker to groww."
         )
 
     def authenticate(self) -> str:
@@ -70,7 +70,7 @@ class ZerodhaBroker(BaseBroker):
     def get_portfolio(self) -> Any:
         self._not_implemented("get_portfolio")
 
-    def get_positions(self, segment: Optional[str] = None) -> Any:
+    def get_positions(self, segment: str | None = None) -> Any:
         self._not_implemented("get_positions")
 
     def get_quote(
@@ -89,5 +89,5 @@ class ZerodhaBroker(BaseBroker):
     ) -> Any:
         self._not_implemented("get_ltp")
 
-    def search_instrument(self, symbol: str, exchange: Optional[str] = None) -> Any:
+    def search_instrument(self, symbol: str, exchange: str | None = None) -> Any:
         self._not_implemented("search_instrument")

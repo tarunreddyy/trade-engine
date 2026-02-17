@@ -1,5 +1,5 @@
 ﻿from importlib import import_module
-from typing import Dict, Type
+from typing import Type
 
 from trade_engine.brokers.base_broker import BaseBroker
 from trade_engine.config.broker_config import get_active_broker
@@ -8,13 +8,14 @@ from trade_engine.config.broker_config import get_active_broker
 class BrokerFactory:
     """Factory to create broker adapters based on configuration."""
 
-    _broker_registry: Dict[str, str] = {}
+    _broker_registry: dict[str, str] = {}
 
     @classmethod
     def _register_default_brokers(cls):
         if cls._broker_registry:
             return
         cls._broker_registry = {
+            "none": "trade_engine.brokers.data_only_broker.DataOnlyBroker",
             "groww": "trade_engine.brokers.groww_broker.GrowwBroker",
             "upstox": "trade_engine.brokers.upstox_broker.UpstoxBroker",
             "zerodha": "trade_engine.brokers.zerodha_broker.ZerodhaBroker",

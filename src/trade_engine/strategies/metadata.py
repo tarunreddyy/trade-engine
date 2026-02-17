@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Dict
 
 
 @dataclass(frozen=True)
@@ -11,7 +10,7 @@ class StrategyMetadata:
     description: str
 
 
-STRATEGY_METADATA: Dict[str, StrategyMetadata] = {
+STRATEGY_METADATA: dict[str, StrategyMetadata] = {
     "SMA Crossover": StrategyMetadata(
         name="SMA Crossover",
         category="Trend Following",
