@@ -1,8 +1,10 @@
 import json
+import os
 import re
 import sys
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import inquirer
 import pandas as pd
@@ -114,14 +116,108 @@ class CLInterface:
             return None
         return None
 
+    @staticmethod
+    def _render_inline_prompt(prefix: str, buffer: str, prev_len: int) -> int:
+        text = f"{prefix}{buffer}"
+        pad = max(0, prev_len - len(text))
+        sys.stdout.write("\r" + text + (" " * pad))
+        sys.stdout.flush()
+        return len(text)
+
+    def _show_menu_windows(self, options: list[str], title: str, slug_map: dict[str, str]) -> str:
+        try:
+            import msvcrt
+        except Exception:
+            raise RuntimeError("msvcrt unavailable")
+
+        prefix = "> "
+        buffer = ""
+        prev_len = 0
+        self.console.print(f"[bold cyan]{title}[/bold cyan] [dim](type `/` for palette)[/dim]")
+        prev_len = self._render_inline_prompt(prefix, buffer, prev_len)
+
+        while True:
+            character = msvcrt.getwch()
+            if character in {"\r", "\n"}:
+                raw = buffer.strip()
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                buffer = ""
+                prev_len = 0
+                if not raw:
+                    prev_len = self._render_inline_prompt(prefix, buffer, prev_len)
+                    continue
+                if raw.startswith("/"):
+                    command = raw[1:].strip().lower()
+                    resolved = self._resolve_slash_command(command, options, slug_map)
+                    if resolved is not None:
+                        return resolved
+                    self.console.print("[red]Unknown command. Type `/` for palette.[/red]")
+                    prev_len = self._render_inline_prompt(prefix, buffer, prev_len)
+                    continue
+                try:
+                    choice_num = int(raw)
+                    if 1 <= choice_num <= len(options):
+                        return options[choice_num - 1]
+                except ValueError:
+                    pass
+                self.console.print("[red]Use a number or slash command.[/red]")
+                prev_len = self._render_inline_prompt(prefix, buffer, prev_len)
+                continue
+
+            if character in {"\b", "\x08"}:
+                buffer = buffer[:-1]
+                prev_len = self._render_inline_prompt(prefix, buffer, prev_len)
+                continue
+
+            if character == "\x03":
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                raise KeyboardInterrupt
+
+            if character in {"\x00", "\xe0"}:
+                arrow = msvcrt.getwch()
+                if arrow == "K":
+                    resolved = self._resolve_slash_command("back", options, slug_map)
+                    if resolved is not None:
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
+                        return resolved
+                elif arrow == "M":
+                    picked = self._show_menu_palette(options, title)
+                    if picked:
+                        return picked
+                elif arrow in {"H", "P"}:
+                    picked = self._show_menu_palette(options, title)
+                    if picked:
+                        return picked
+                prev_len = self._render_inline_prompt(prefix, buffer, prev_len)
+                continue
+
+            if character == "/" and buffer == "":
+                picked = self._show_menu_palette(options, title)
+                if picked:
+                    return picked
+                prev_len = self._render_inline_prompt(prefix, buffer, prev_len)
+                continue
+
+            if character.isprintable():
+                buffer += character
+                prev_len = self._render_inline_prompt(prefix, buffer, prev_len)
+
     def show_menu(self, options: list, title: str = "Menu", clear_screen: bool = True) -> str:
         if clear_screen:
             self.console.clear()
         normalized_options = [str(option) for option in options]
-        self.console.print(f"[bold cyan]{title}[/bold cyan] [dim](type `/` for menu)[/dim]")
-
         slug_map = {self._slugify(option): option for option in normalized_options}
 
+        if os.name == "nt":
+            try:
+                return self._show_menu_windows(normalized_options, title, slug_map)
+            except RuntimeError:
+                pass
+
+        self.console.print(f"[bold cyan]{title}[/bold cyan] [dim](type `/` for menu)[/dim]")
         while True:
             try:
                 raw = (self.console.input("[bold cyan]> [/bold cyan]") or "").strip()

@@ -15,7 +15,7 @@ class SessionStateStore:
         if not os.path.exists(self.state_file):
             return None
         try:
-            with open(self.state_file, "r", encoding="utf-8") as handle:
+            with open(self.state_file, encoding="utf-8") as handle:
                 return json.load(handle)
         except Exception:
             return None

@@ -40,3 +40,11 @@ data/runtime/live_session_state.json
 data/runtime/cli_settings.json
 data/runtime/order_journal.sqlite
 data/runtime/metrics_latest.json
+data/runtime/live_dashboard.json
+data/runtime/live_dashboard_controls.json
+
+# Credential-like local files
+**/cli_settings.json
+**/cli_settings.*.json
+**/*credentials*.json
+**/*secrets*.json

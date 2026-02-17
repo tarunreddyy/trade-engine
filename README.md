@@ -29,11 +29,13 @@ trade-engine
 pip install -e .
 ```
 
-Optional broker extras (you can also install broker SDKs later from CLI Settings -> Broker SDKs):
+Optional broker extras:
 - `.[groww]`
 - `.[upstox]`
 - `.[zerodha]`
 - `.[all-brokers]`
+
+Note: Upstox and Zerodha adapters work via REST without SDK installation. Groww still requires its SDK.
 
 ### From PyPI
 ```bash
@@ -59,8 +61,21 @@ python main.py
 First-time users:
 - Open `Quick Setup` from Main Menu
 - Select broker
-- Install broker SDK from CLI prompt
 - Enter broker credentials
+
+Default beginner flow:
+- `Start Live Scanner` from main menu
+- default strategy is `HLC3 Pivot Breakout`
+- scans full configured universe (EQ + F&O watch) and ranks latest BUY/SELL triggers
+- no risk/SL/TP prompts unless you choose `Start Auto Trader`
+
+Simplified main menu:
+- `Start Live Scanner`
+- `Dashboard`
+- `Orders`
+- `Portfolio`
+- `Settings`
+- `More Tools`
 
 ## CLI Navigation
 
@@ -68,7 +83,8 @@ First-time users:
   - numeric input (`1`, `2`, ...)
   - slash commands (`/1`, `/orders-management`, etc.)
 - Menus are hidden by default for a cleaner terminal.
-- Type `/` in any menu to open the command palette dropdown and use arrow keys to select.
+- Type `/` in any menu to open the command palette dropdown instantly and use arrow keys to select.
+- On Windows menus, `Left Arrow` goes back when a Back option exists, and `Right Arrow` opens palette.
 - In chatbot and live runtime prompts, `/` shows available commands.
 - Slash matching supports direct command, numeric, and unique prefix resolution.
 
@@ -78,7 +94,7 @@ Main Menu -> `Settings`
 
 You can configure:
 - Active broker (`none`, `groww`, `upstox`, `zerodha`)
-- Broker SDK install/load (`Settings` -> `Broker SDKs`)
+- Broker SDK install/load (`Settings` -> `Broker SDKs`, Groww only required)
 - Broker credentials/secrets
 - LLM provider and API keys
 - Pinecone API key and index
@@ -88,18 +104,29 @@ You can configure:
 - Advanced key/value editor for any dotted key path
 
 Settings persist to:
-- `data/runtime/cli_settings.json` (default)
+- Windows: `%APPDATA%\\trade-engine\\cli_settings.json` (default)
+- macOS/Linux: `~/.trade_engine/cli_settings.json` (default)
 - Override path with env: `CLI_SETTINGS_FILE`
 
 `.env` is optional fallback only.
 
 ## Configuration Reference
 
-Settings are stored in `data/runtime/cli_settings.json` by default.  
+Settings are stored in a user-home/AppData path by default (outside your git repo).  
 Resolution order per key:
 1. CLI settings JSON
 2. Environment variable fallback
 3. Built-in default
+
+## Secret Safety
+
+- Local credential files are git-ignored by default.
+- A secret-guard script is included to block accidental commits of tokens/secrets.
+
+Install the git hook once per clone:
+```bash
+python scripts/install_git_hooks.py
+```
 
 Supported keys (settable from CLI directly or via `Settings -> Advanced Key/Value`):
 
@@ -111,8 +138,13 @@ Supported keys (settable from CLI directly or via `Settings -> Advanced Key/Valu
 | `broker.groww.access_token` | `GROWW_ACCESS_TOKEN` | `""` |
 | `broker.upstox.api_key` | `UPSTOX_API_KEY` | `""` |
 | `broker.upstox.api_secret` | `UPSTOX_API_SECRET` | `""` |
+| `broker.upstox.access_token` | `UPSTOX_ACCESS_TOKEN` | `""` |
+| `broker.upstox.redirect_uri` | `UPSTOX_REDIRECT_URI` | `""` |
+| `broker.upstox.auth_code` | `UPSTOX_AUTH_CODE` | `""` |
 | `broker.zerodha.api_key` | `ZERODHA_API_KEY` | `""` |
 | `broker.zerodha.api_secret` | `ZERODHA_API_SECRET` | `""` |
+| `broker.zerodha.access_token` | `ZERODHA_ACCESS_TOKEN` | `""` |
+| `broker.zerodha.request_token` | `ZERODHA_REQUEST_TOKEN` | `""` |
 | `llm.provider` | `LLM_PROVIDER` | `openai` |
 | `llm.openai_api_key` | `OPENAI_API_KEY` | `""` |
 | `llm.claude_api_key` | `CLAUDE_API_KEY` | `""` |
@@ -141,7 +173,8 @@ Supported keys (settable from CLI directly or via `Settings -> Advanced Key/Valu
 ## Live Dashboard (Web + CLI)
 
 Open:
-- `Trading Strategies` -> `Live Trading Console`
+- `Start Live Scanner` (beginner mode, signal-only)
+- `More Tools` -> `Strategies (Advanced)` -> `Start Auto Trader` (order execution mode)
 
 Web dashboard:
 - URL: `http://127.0.0.1:8765` (port configurable in CLI settings)

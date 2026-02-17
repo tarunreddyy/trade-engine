@@ -1,11 +1,11 @@
-﻿from trade_engine.core.stock_visualizer import StockVisualizer
-from trade_engine.config.visualization_config import (
+﻿from trade_engine.config.visualization_config import (
     AVAILABLE_INDICATORS,
     VALID_INTERVALS,
     VALID_PERIODS,
     get_default_interval,
     get_default_period,
 )
+from trade_engine.core.stock_visualizer import StockVisualizer
 
 
 class VisualizationMenu:
@@ -23,7 +23,7 @@ class VisualizationMenu:
                 "Line Chart",
                 "Technical Indicators",
                 "Compare Stocks",
-                "Back to Main Menu"
+                "Back to Main Menu",
             ]
 
             choice = self.interface.show_menu(menu_options, "Stock Visualization")
@@ -66,7 +66,7 @@ class VisualizationMenu:
         indicator_keys = list(AVAILABLE_INDICATORS.keys())
         for idx, key in enumerate(indicator_keys, 1):
             self.interface.console.print(f"  [green]{idx}.[/green] {key} - {AVAILABLE_INDICATORS[key]}")
-        self.interface.console.print(f"  [green]0.[/green] None")
+        self.interface.console.print("  [green]0.[/green] None")
 
         raw = self.interface.input_prompt("Select indicators (comma-separated numbers, e.g. 1,3,5): ")
         selected = []
@@ -86,7 +86,11 @@ class VisualizationMenu:
             self.interface.show_loading(
                 f"[bold cyan]Fetching data for {symbol}...[/bold cyan]",
                 self.visualizer.plot_with_indicators,
-                symbol, period, interval, [], "candlestick"
+                symbol,
+                period,
+                interval,
+                [],
+                "candlestick",
             )
         except Exception as e:
             self.interface.print_error(f"Error: {e}")
@@ -99,7 +103,11 @@ class VisualizationMenu:
             self.interface.show_loading(
                 f"[bold cyan]Fetching data for {symbol}...[/bold cyan]",
                 self.visualizer.plot_with_indicators,
-                symbol, period, interval, [], "line"
+                symbol,
+                period,
+                interval,
+                [],
+                "line",
             )
         except Exception as e:
             self.interface.print_error(f"Error: {e}")
@@ -116,7 +124,11 @@ class VisualizationMenu:
             self.interface.show_loading(
                 f"[bold cyan]Fetching data and computing indicators for {symbol}...[/bold cyan]",
                 self.visualizer.plot_with_indicators,
-                symbol, period, interval, indicators, "candlestick"
+                symbol,
+                period,
+                interval,
+                indicators,
+                "candlestick",
             )
         except Exception as e:
             self.interface.print_error(f"Error: {e}")
@@ -130,15 +142,20 @@ class VisualizationMenu:
             df1 = self.interface.show_loading(
                 f"[bold cyan]Fetching {symbol1}...[/bold cyan]",
                 self.visualizer.fetch_historical_data,
-                symbol1, period, interval
+                symbol1,
+                period,
+                interval,
             )
             df2 = self.interface.show_loading(
                 f"[bold cyan]Fetching {symbol2}...[/bold cyan]",
                 self.visualizer.fetch_historical_data,
-                symbol2, period, interval
+                symbol2,
+                period,
+                interval,
             )
             if df1 is not None and df2 is not None:
                 import plotext as plt
+
                 plt.clear_figure()
                 plt.theme("dark")
                 plt.title(f"{symbol1} vs {symbol2} - Close Price")
@@ -152,5 +169,3 @@ class VisualizationMenu:
                 plt.show()
         except Exception as e:
             self.interface.print_error(f"Error: {e}")
-
-

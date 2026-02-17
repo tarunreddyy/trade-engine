@@ -1,7 +1,6 @@
-﻿import yfinance as yf
-import pandas as pd
-import plotext as plt
+﻿import plotext as plt
 import ta
+import yfinance as yf
 
 
 class StockVisualizer:
@@ -172,5 +171,7 @@ class StockVisualizer:
             plt.show()
 
         return df
+
+
 
 

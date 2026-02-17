@@ -10,7 +10,18 @@ load_dotenv()
 
 
 SETTINGS_FILE_ENV = "CLI_SETTINGS_FILE"
-DEFAULT_SETTINGS_FILE = "data/runtime/cli_settings.json"
+
+
+def _default_settings_file() -> str:
+    # Keep credential storage outside repo by default to reduce accidental commits.
+    if os.name == "nt":
+        appdata = os.getenv("APPDATA")
+        if appdata:
+            return str(Path(appdata) / "trade-engine" / "cli_settings.json")
+    return str(Path.home() / ".trade_engine" / "cli_settings.json")
+
+
+DEFAULT_SETTINGS_FILE = _default_settings_file()
 
 ENV_MAPPING: dict[str, str] = {
     "broker.active": "BROKER",
@@ -19,8 +30,13 @@ ENV_MAPPING: dict[str, str] = {
     "broker.groww.access_token": "GROWW_ACCESS_TOKEN",
     "broker.upstox.api_key": "UPSTOX_API_KEY",
     "broker.upstox.api_secret": "UPSTOX_API_SECRET",
+    "broker.upstox.access_token": "UPSTOX_ACCESS_TOKEN",
+    "broker.upstox.redirect_uri": "UPSTOX_REDIRECT_URI",
+    "broker.upstox.auth_code": "UPSTOX_AUTH_CODE",
     "broker.zerodha.api_key": "ZERODHA_API_KEY",
     "broker.zerodha.api_secret": "ZERODHA_API_SECRET",
+    "broker.zerodha.access_token": "ZERODHA_ACCESS_TOKEN",
+    "broker.zerodha.request_token": "ZERODHA_REQUEST_TOKEN",
     "llm.provider": "LLM_PROVIDER",
     "llm.openai_api_key": "OPENAI_API_KEY",
     "llm.claude_api_key": "CLAUDE_API_KEY",
@@ -58,10 +74,15 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "upstox": {
             "api_key": "",
             "api_secret": "",
+            "access_token": "",
+            "redirect_uri": "",
+            "auth_code": "",
         },
         "zerodha": {
             "api_key": "",
             "api_secret": "",
+            "access_token": "",
+            "request_token": "",
         },
     },
     "llm": {
@@ -181,6 +202,11 @@ def save_settings(settings: dict[str, Any]) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+        if os.name != "nt":
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
         return True
     except OSError:
         return False

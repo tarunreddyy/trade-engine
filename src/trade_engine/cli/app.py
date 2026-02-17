@@ -175,50 +175,33 @@ class TraderCLI:
                 self.interface.print_banner()
                 self._render_main_session_header()
                 main_menu = [
-                    "Quick Setup",
+                    "Start Live Scanner",
+                    "Dashboard",
                     "Orders",
                     "Portfolio",
-                    "Market Data",
-                    "Search",
-                    "AI Search",
-                    "Chatbot",
-                    "Charts",
-                    "Strategies",
-                    "AI Advisor",
                     "Settings",
+                    "More Tools",
                     "Exit",
                 ]
                 choice = self.interface.show_menu(main_menu, "Main Menu", clear_screen=False)
 
-                if choice == "Quick Setup":
-                    changed = self.settings_menu.quick_setup()
-                    if changed:
-                        self._refresh_runtime_components()
+                if choice == "Start Live Scanner":
+                    if self.dashboard_server:
+                        self.dashboard_server.stop()
+                        self.dashboard_server = None
+                    self.strategy_menu.start_live_scanner()
+                elif choice == "Dashboard":
+                    self.handle_live_data_menu()
                 elif choice == "Orders":
                     self.handle_orders_menu()
                 elif choice == "Portfolio":
                     self.handle_portfolio_menu()
-                elif choice == "Market Data":
-                    self.handle_live_data_menu()
-                elif choice == "Search":
-                    self.handle_search_menu()
-                elif choice == "AI Search":
-                    self.handle_vector_search_menu()
-                elif choice == "Chatbot":
-                    self.handle_chatbot_menu()
-                elif choice == "Charts":
-                    self.viz_menu.show()
-                elif choice == "Strategies":
-                    if self.dashboard_server:
-                        self.dashboard_server.stop()
-                        self.dashboard_server = None
-                    self.strategy_menu.show()
-                elif choice == "AI Advisor":
-                    self.ai_advisor_menu.show()
                 elif choice == "Settings":
                     changed = self.settings_menu.show()
                     if changed:
                         self._refresh_runtime_components()
+                elif choice == "More Tools":
+                    self.handle_more_tools_menu()
                 elif choice == "Exit":
                     if self.dashboard_server:
                         self.dashboard_server.stop()
@@ -233,6 +216,43 @@ class TraderCLI:
                 sys.exit(0)
             except Exception as error:
                 self.interface.print_error(f"An error occurred: {str(error)}")
+
+    def handle_more_tools_menu(self):
+        while True:
+            choice = self.interface.show_menu(
+                [
+                    "Quick Setup",
+                    "Strategies (Advanced)",
+                    "Search",
+                    "AI Search",
+                    "Chatbot",
+                    "Charts",
+                    "AI Advisor",
+                    "Back to Main Menu",
+                ],
+                "More Tools",
+            )
+            if choice == "Quick Setup":
+                changed = self.settings_menu.quick_setup()
+                if changed:
+                    self._refresh_runtime_components()
+            elif choice == "Strategies (Advanced)":
+                if self.dashboard_server:
+                    self.dashboard_server.stop()
+                    self.dashboard_server = None
+                self.strategy_menu.show()
+            elif choice == "Search":
+                self.handle_search_menu()
+            elif choice == "AI Search":
+                self.handle_vector_search_menu()
+            elif choice == "Chatbot":
+                self.handle_chatbot_menu()
+            elif choice == "Charts":
+                self.viz_menu.show()
+            elif choice == "AI Advisor":
+                self.ai_advisor_menu.show()
+            elif choice == "Back to Main Menu":
+                return
 
     def handle_orders_menu(self):
         menu_options = [
@@ -384,8 +404,6 @@ class TraderCLI:
             "Refresh Dashboard Fallback Data",
             "NSE + F&O Snapshot",
             "Get Live Quote",
-            "Get LTP (Last Traded Price)",
-            "Side-by-Side Comparison",
             "Back to Main Menu",
         ]
         choice = self.interface.show_menu(menu_options, "Live Market Data")
@@ -433,46 +451,8 @@ class TraderCLI:
             if result:
                 self.interface.display_response(result, f"Live Quote - {symbol}")
 
-        elif choice == "Get LTP (Last Traded Price)":
-            symbol = self.interface.input_prompt("Enter trading symbol: ")
-            exchange = self.interface.input_prompt("Enter exchange (NSE/BSE): ", style="bold yellow") or "NSE"
-            segment = self.interface.input_prompt("Enter segment (CASH/FUTURES): ", style="bold yellow") or "CASH"
-            result = self.interface.show_loading(
-                "[bold cyan]Fetching LTP...[/bold cyan]",
-                self.broker.get_ltp,
-                trading_symbol=symbol,
-                exchange=exchange,
-                segment=segment,
-            )
-            if result:
-                self.interface.display_response(result, f"LTP - {symbol}")
-
-        elif choice == "Side-by-Side Comparison":
-            symbol1 = self.interface.input_prompt("Enter first symbol: ")
-            symbol2 = self.interface.input_prompt("Enter second symbol: ")
-            exchange = self.interface.input_prompt("Enter exchange (NSE/BSE): ", style="bold yellow") or "NSE"
-            segment = self.interface.input_prompt("Enter segment (CASH/FUTURES): ", style="bold yellow") or "CASH"
-            result1 = self.interface.show_loading(
-                f"[bold cyan]Fetching {symbol1}...[/bold cyan]",
-                self.broker.get_quote,
-                trading_symbol=symbol1,
-                exchange=exchange,
-                segment=segment,
-            )
-            result2 = self.interface.show_loading(
-                f"[bold cyan]Fetching {symbol2}...[/bold cyan]",
-                self.broker.get_quote,
-                trading_symbol=symbol2,
-                exchange=exchange,
-                segment=segment,
-            )
-            if result1 and result2:
-                self.interface.display_side_by_side(
-                    result1,
-                    result2,
-                    left_title=f"{symbol1} Quote",
-                    right_title=f"{symbol2} Quote",
-                )
+        elif choice == "Back to Main Menu":
+            return
 
     def handle_search_menu(self):
         query = self.interface.input_prompt("Enter search query: ")

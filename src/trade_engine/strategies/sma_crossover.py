@@ -1,5 +1,6 @@
 ﻿import pandas as pd
 import ta
+
 from trade_engine.strategies.base_strategy import BaseStrategy
 
 
@@ -38,5 +39,7 @@ class SMACrossoverStrategy(BaseStrategy):
                 df.iloc[i, df.columns.get_loc("signal")] = -1
 
         return df
+
+
 
 

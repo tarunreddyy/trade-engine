@@ -1,5 +1,6 @@
-﻿import pandas as pd
-import numpy as np
+﻿import numpy as np
+import pandas as pd
+
 from trade_engine.strategies.base_strategy import BaseStrategy
 
 
@@ -137,5 +138,7 @@ class HLC3PivotBreakoutStrategy(BaseStrategy):
                 df.iloc[i, df.columns.get_loc("signal")] = -1
 
         return df
+
+
 
 

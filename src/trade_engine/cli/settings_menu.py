@@ -1,4 +1,4 @@
-from trade_engine.brokers.sdk_manager import (
+﻿from trade_engine.brokers.sdk_manager import (
     get_broker_sdk_status,
     install_broker_sdk,
     list_broker_sdk_status,
@@ -28,43 +28,44 @@ from trade_engine.config.pinecone_config import (
     set_pinecone_index_name_eq,
 )
 from trade_engine.config.settings_store import (
+    get_setting,
     get_settings_file,
+    load_settings,
     mask_secret,
     save_settings,
     set_setting,
-    load_settings,
 )
 from trade_engine.config.trading_config import (
     get_kill_switch_enabled,
     get_live_auto_resume_session,
-    get_live_default_max_position_pct,
-    get_live_default_mode,
     get_live_dashboard_control_file,
     get_live_dashboard_port,
     get_live_dashboard_state_file,
-    get_live_market_hours_only,
-    get_live_max_orders_per_day,
-    get_order_journal_file,
+    get_live_default_max_position_pct,
+    get_live_default_mode,
     get_live_default_refresh_seconds,
     get_live_default_risk_per_trade_pct,
     get_live_default_stop_loss_pct,
     get_live_default_take_profit_pct,
+    get_live_market_hours_only,
+    get_live_max_orders_per_day,
     get_live_session_state_file,
+    get_order_journal_file,
     set_kill_switch_enabled,
     set_live_auto_resume_session,
-    set_live_default_max_position_pct,
-    set_live_default_mode,
     set_live_dashboard_control_file,
     set_live_dashboard_port,
     set_live_dashboard_state_file,
-    set_live_market_hours_only,
-    set_live_max_orders_per_day,
-    set_order_journal_file,
+    set_live_default_max_position_pct,
+    set_live_default_mode,
     set_live_default_refresh_seconds,
     set_live_default_risk_per_trade_pct,
     set_live_default_stop_loss_pct,
     set_live_default_take_profit_pct,
+    set_live_market_hours_only,
+    set_live_max_orders_per_day,
     set_live_session_state_file,
+    set_order_journal_file,
 )
 from trade_engine.config.visualization_config import (
     get_default_chart_type,
@@ -127,7 +128,7 @@ class SettingsMenu:
 
     def _quick_setup_wizard(self) -> bool:
         changed = False
-        self.interface.print_info("Quick setup will configure broker, SDK, and credentials in one flow.")
+        self.interface.print_info("Quick setup will configure broker and credentials in one flow.")
 
         current = get_active_broker()
         broker = self.interface.show_menu(
@@ -305,17 +306,38 @@ class SettingsMenu:
         return updated
 
     def _set_stub_broker_credentials(self, broker_name: str) -> bool:
-        key_path = f"broker.{broker_name}.api_key"
-        secret_path = f"broker.{broker_name}.api_secret"
-        key = self.interface.input_prompt(f"{broker_name.upper()} API key (blank to keep current): ").strip()
-        secret = self.interface.input_prompt(f"{broker_name.upper()} API secret (blank to keep current): ").strip()
+        if broker_name == "upstox":
+            fields = [
+                ("api_key", "API key"),
+                ("api_secret", "API secret"),
+                ("access_token", "Access token"),
+                ("redirect_uri", "Redirect URI"),
+                ("auth_code", "Authorization code"),
+            ]
+        elif broker_name == "zerodha":
+            fields = [
+                ("api_key", "API key"),
+                ("api_secret", "API secret"),
+                ("access_token", "Access token"),
+                ("request_token", "Request token"),
+            ]
+        else:
+            fields = [
+                ("api_key", "API key"),
+                ("api_secret", "API secret"),
+            ]
+
         updated = False
-        if key:
-            set_setting(key_path, key)
-            updated = True
-        if secret:
-            set_setting(secret_path, secret)
-            updated = True
+        for suffix, label in fields:
+            key_path = f"broker.{broker_name}.{suffix}"
+            current_value = str(get_setting(key_path, "", str) or "").strip()
+            masked_value = mask_secret(current_value) if "token" in suffix or "secret" in suffix else current_value
+            prompt = f"{broker_name.upper()} {label} [{masked_value}] (blank to keep current): "
+            value = self.interface.input_prompt(prompt).strip()
+            if value:
+                set_setting(key_path, value)
+                updated = True
+
         if updated:
             self.interface.print_success(f"{broker_name.title()} credentials updated in CLI settings.")
         return updated
@@ -527,6 +549,42 @@ class SettingsMenu:
             {"setting": "broker.groww.api_key", "value": mask_secret(get_groww_api_key())},
             {"setting": "broker.groww.api_secret", "value": mask_secret(get_groww_api_secret())},
             {"setting": "broker.groww.access_token", "value": mask_secret(get_groww_access_token())},
+            {
+                "setting": "broker.upstox.api_key",
+                "value": mask_secret(str(get_setting("broker.upstox.api_key", "", str) or "")),
+            },
+            {
+                "setting": "broker.upstox.api_secret",
+                "value": mask_secret(str(get_setting("broker.upstox.api_secret", "", str) or "")),
+            },
+            {
+                "setting": "broker.upstox.access_token",
+                "value": mask_secret(str(get_setting("broker.upstox.access_token", "", str) or "")),
+            },
+            {
+                "setting": "broker.upstox.redirect_uri",
+                "value": str(get_setting("broker.upstox.redirect_uri", "", str) or ""),
+            },
+            {
+                "setting": "broker.upstox.auth_code",
+                "value": mask_secret(str(get_setting("broker.upstox.auth_code", "", str) or "")),
+            },
+            {
+                "setting": "broker.zerodha.api_key",
+                "value": mask_secret(str(get_setting("broker.zerodha.api_key", "", str) or "")),
+            },
+            {
+                "setting": "broker.zerodha.api_secret",
+                "value": mask_secret(str(get_setting("broker.zerodha.api_secret", "", str) or "")),
+            },
+            {
+                "setting": "broker.zerodha.access_token",
+                "value": mask_secret(str(get_setting("broker.zerodha.access_token", "", str) or "")),
+            },
+            {
+                "setting": "broker.zerodha.request_token",
+                "value": mask_secret(str(get_setting("broker.zerodha.request_token", "", str) or "")),
+            },
             {"setting": "llm.provider", "value": get_llm_provider()},
             {"setting": "llm.openai_api_key", "value": mask_secret(get_openai_api_key())},
             {"setting": "llm.claude_api_key", "value": mask_secret(get_claude_api_key())},
@@ -553,3 +611,4 @@ class SettingsMenu:
             {"setting": "trading.live_auto_resume_session", "value": str(get_live_auto_resume_session())},
         ]
         self.interface.display_response(rows, "Effective CLI Settings")
+

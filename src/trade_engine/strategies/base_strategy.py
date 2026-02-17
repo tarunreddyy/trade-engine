@@ -1,4 +1,5 @@
 ﻿from abc import ABC, abstractmethod
+
 import pandas as pd
 
 
@@ -28,5 +29,7 @@ class BaseStrategy(ABC):
         """Validate that required columns exist."""
         required = {"Open", "High", "Low", "Close", "Volume"}
         return required.issubset(set(df.columns)) and len(df) > 0
+
+
 
 

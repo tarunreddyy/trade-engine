@@ -1,5 +1,6 @@
 ﻿import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
@@ -11,18 +12,18 @@ from rich.panel import Panel
 from rich.table import Table
 
 from trade_engine.brokers.base_broker import BaseBroker
-from trade_engine.core.event_bus import EventBus
-from trade_engine.core.market_data_service import MarketDataService
 from trade_engine.config.trading_config import (
+    get_kill_switch_enabled,
+    get_live_auto_resume_session,
     get_live_dashboard_control_file,
     get_live_dashboard_port,
     get_live_dashboard_state_file,
-    get_kill_switch_enabled,
-    get_live_auto_resume_session,
     get_live_market_hours_only,
     get_live_max_orders_per_day,
     get_live_session_state_file,
 )
+from trade_engine.core.event_bus import EventBus
+from trade_engine.core.market_data_service import MarketDataService
 from trade_engine.engine.execution_router import ExecutionRouter
 from trade_engine.engine.observability import RuntimeMetrics
 from trade_engine.engine.position_sizer import PositionSizer
@@ -79,6 +80,7 @@ class LiveTradingConsole:
         self._command_buffer: str = ""
         self._symbol_controls: dict[str, dict[str, bool]] = {}
         self.signal_triggers: list[dict[str, Any]] = []
+        self.auto_trading_enabled: bool = True
 
     @staticmethod
     def _signal_text(signal: int) -> str:
@@ -150,6 +152,15 @@ class LiveTradingConsole:
         )
         self.signal_triggers = self.signal_triggers[:200]
 
+    @staticmethod
+    def _ordered_snapshots(snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        def _key(row: dict[str, Any]) -> tuple[float, float]:
+            signal_score = abs(float(row.get("signal", 0) or 0))
+            move_score = abs(float(row.get("change_pct", 0) or 0))
+            return signal_score, move_score
+
+        return sorted(snapshots, key=_key, reverse=True)
+
     def _start_dashboard_server(self, open_browser: bool = False) -> str:
         if self.dashboard_server:
             return self.dashboard_server.url
@@ -189,7 +200,8 @@ class LiveTradingConsole:
             )
 
         watchlist: list[dict[str, Any]] = []
-        for row in snapshots:
+        ranked_rows = self._ordered_snapshots(snapshots)[:25]
+        for row in ranked_rows:
             symbol = row["symbol"]
             controls = self._symbol_controls.get(symbol, {"buy": True, "sell": True})
             watchlist.append(
@@ -362,8 +374,7 @@ class LiveTradingConsole:
     def _build_snapshot(self, strategy, symbols: list[str], period: str, interval: str) -> list[dict[str, Any]]:
         import yfinance as yf
 
-        snapshots = []
-        for symbol in symbols:
+        def _snapshot_for_symbol(symbol: str) -> dict[str, Any]:
             try:
                 df = yf.download(
                     symbol,
@@ -374,8 +385,7 @@ class LiveTradingConsole:
                     threads=False,
                 )
                 if df is None or df.empty:
-                    snapshots.append({"symbol": symbol, "price": None, "signal": 0, "change_pct": None})
-                    continue
+                    return {"symbol": symbol, "price": None, "signal": 0, "change_pct": None}
                 if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
                     df.columns = [c[0] for c in df.columns]
 
@@ -384,18 +394,22 @@ class LiveTradingConsole:
                 prev_close = float(analyzed["Close"].iloc[-2]) if len(analyzed) > 1 else float(latest["Close"])
                 close = float(latest["Close"])
                 change_pct = ((close - prev_close) / prev_close * 100) if prev_close else 0.0
-
-                snapshots.append(
-                    {
-                        "symbol": symbol,
-                        "price": close,
-                        "signal": int(latest.get("signal", 0)),
-                        "change_pct": change_pct,
-                    }
-                )
+                return {
+                    "symbol": symbol,
+                    "price": close,
+                    "signal": int(latest.get("signal", 0)),
+                    "change_pct": change_pct,
+                }
             except Exception as exc:
                 self._log_event(f"{symbol}: data error ({exc})")
-                snapshots.append({"symbol": symbol, "price": None, "signal": 0, "change_pct": None})
+                return {"symbol": symbol, "price": None, "signal": 0, "change_pct": None}
+
+        snapshots: list[dict[str, Any]] = []
+        workers = max(4, min(16, len(symbols)))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_snapshot_for_symbol, symbol) for symbol in symbols]
+            for future in as_completed(futures):
+                snapshots.append(future.result())
         return snapshots
 
     def _process_signals(self, snapshots: list[dict[str, Any]]):
@@ -413,6 +427,11 @@ class LiveTradingConsole:
             signal = int(snapshot.get("signal", 0))
             price = snapshot.get("price")
             if price is None:
+                continue
+
+            if not self.auto_trading_enabled:
+                if signal in {1, -1}:
+                    self._append_trigger(symbol, signal, price, f"{self._signal_label(signal)}_SIGNAL")
                 continue
 
             current_position = self.positions.get(symbol)
@@ -750,7 +769,7 @@ class LiveTradingConsole:
         watch.add_column("Position", justify="right")
         watch.add_column("Entry", justify="right")
         watch.add_column("Unrealized", justify="right")
-        for row in snapshots:
+        for row in self._ordered_snapshots(snapshots):
             symbol = row["symbol"]
             position = self.positions.get(symbol)
             controls = self._symbol_controls.get(symbol, {"buy": True, "sell": True})
@@ -802,6 +821,8 @@ class LiveTradingConsole:
         spark_panel = Panel(spark or "-", title="Equity Trend", border_style="blue")
         command_panel = Panel(
             (
+                f"[dim]Auto trade:[/dim] {'ON' if self.auto_trading_enabled else 'OFF'}  "
+                "[dim](scanner mode only logs signals when OFF)[/dim]\n"
                 "[bold white]Slash Commands:[/bold white] "
                 "/buy on|off, /sell on|off, /sl <pct>, /tp <pct>, /risk <pct>, /maxpos <pct>, /mode paper|live, "
                 "/kill on|off, /hours on|off, /maxorders <n>, /add <SYM>, /remove <SYM>, /clearstate, /help, /quit\n"
@@ -841,7 +862,7 @@ class LiveTradingConsole:
                 command = self._command_buffer.strip()
                 self._command_buffer = ""
                 return command
-            if character in {"\b", "\x08"}:
+            if character == "\x08":
                 self._command_buffer = self._command_buffer[:-1]
                 continue
             if character == "\x03":
@@ -977,6 +998,7 @@ class LiveTradingConsole:
         resume_session: bool | None = None,
         launch_web_dashboard: bool = True,
         open_dashboard_browser: bool = True,
+        auto_trading_enabled: bool = True,
     ):
         if resume_session is None:
             resume_session = get_live_auto_resume_session()
@@ -994,6 +1016,7 @@ class LiveTradingConsole:
                 self._log_event("Auto-resume enabled: previous state loaded.")
 
         self.router.set_mode(execution_mode)
+        self.auto_trading_enabled = bool(auto_trading_enabled)
         if not symbols:
             raise ValueError("At least one symbol is required to run live console.")
 
@@ -1057,5 +1080,7 @@ class LiveTradingConsole:
             if self.dashboard_server:
                 self.dashboard_server.stop()
                 self.dashboard_server = None
+
+
 
 

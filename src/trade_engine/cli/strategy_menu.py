@@ -1,37 +1,37 @@
 ﻿import yfinance as yf
 
-from trade_engine.core.stock_visualizer import StockVisualizer
-from trade_engine.core.live_trading_console import LiveTradingConsole
-from trade_engine.strategies import STRATEGY_DETAILS, STRATEGY_REGISTRY
-from trade_engine.strategies.strategy_combiner import StrategyCombiner
-from trade_engine.strategies.backtester import Backtester
-from trade_engine.engine.portfolio_rebalancer import PortfolioRebalancer
-from trade_engine.engine.recommendation_engine import RecommendationEngine
-from trade_engine.engine.strategy_leaderboard import StrategyLeaderboard
 from trade_engine.config.market_universe import DEFAULT_SCAN_UNIVERSE
-from trade_engine.config.strategy_config import STRATEGY_DEFAULTS, COMBINE_MODES, DEFAULT_INITIAL_CAPITAL
+from trade_engine.config.strategy_config import COMBINE_MODES, DEFAULT_INITIAL_CAPITAL, STRATEGY_DEFAULTS
 from trade_engine.config.trading_config import (
     get_kill_switch_enabled,
-    get_live_default_mode,
+    get_live_dashboard_port,
     get_live_default_max_position_pct,
-    get_live_market_hours_only,
-    get_live_max_orders_per_day,
+    get_live_default_mode,
     get_live_default_refresh_seconds,
     get_live_default_risk_per_trade_pct,
     get_live_default_stop_loss_pct,
     get_live_default_take_profit_pct,
-    get_live_dashboard_port,
+    get_live_market_hours_only,
+    get_live_max_orders_per_day,
     set_kill_switch_enabled,
     set_live_default_max_position_pct,
-    set_live_market_hours_only,
-    set_live_max_orders_per_day,
     set_live_default_mode,
     set_live_default_refresh_seconds,
     set_live_default_risk_per_trade_pct,
     set_live_default_stop_loss_pct,
     set_live_default_take_profit_pct,
+    set_live_market_hours_only,
+    set_live_max_orders_per_day,
 )
-import yfinance as yf
+from trade_engine.core.live_trading_console import LiveTradingConsole
+from trade_engine.core.market_data_service import FNO_DEFAULT_TICKERS
+from trade_engine.core.stock_visualizer import StockVisualizer
+from trade_engine.engine.portfolio_rebalancer import PortfolioRebalancer
+from trade_engine.engine.recommendation_engine import RecommendationEngine
+from trade_engine.engine.strategy_leaderboard import StrategyLeaderboard
+from trade_engine.strategies import STRATEGY_DETAILS, STRATEGY_REGISTRY
+from trade_engine.strategies.backtester import Backtester
+from trade_engine.strategies.strategy_combiner import StrategyCombiner
 
 
 class StrategyMenu:
@@ -53,6 +53,7 @@ class StrategyMenu:
         self._apply_live_defaults()
         self.current_strategy = None
         self.current_strategy_name = None
+        self._ensure_default_strategy()
 
     def _apply_live_defaults(self):
         self.live_console.router.set_mode(get_live_default_mode())
@@ -64,44 +65,75 @@ class StrategyMenu:
         self.live_console.risk_config.market_hours_only = get_live_market_hours_only()
         self.live_console.risk_config.max_orders_per_day = get_live_max_orders_per_day()
 
+    def _ensure_default_strategy(self):
+        if self.current_strategy is not None:
+            return
+        strategy_name = "HLC3 Pivot Breakout"
+        cls = STRATEGY_REGISTRY[strategy_name]
+        key = strategy_name.replace(" ", "_")
+        defaults = STRATEGY_DEFAULTS.get(key, {})
+        self.current_strategy = cls(**defaults)
+        self.current_strategy_name = strategy_name
+
     def show(self):
         """Display the strategy sub-menu."""
+        self._ensure_default_strategy()
         while True:
             menu_options = [
-                "Select Strategy",
-                "Configure Parameters",
-                "Run Signals on Stock",
-                "Backtest Strategy",
-                "Combine Strategies",
-                "Stock Recommendations (20-25)",
-                "Portfolio Rebalancer",
-                "Strategy Leaderboard (Auto)",
-                "Live Trading Console",
+                "Start Live Scanner (Recommended)",
+                "Start Auto Trader",
+                "Stock Recommendations",
+                "Backtest Current Strategy",
+                "Change Strategy",
+                "Advanced Tools",
                 "Back to Main Menu"
             ]
 
-            choice = self.interface.show_menu(menu_options, "Trading Strategies")
+            choice = self.interface.show_menu(menu_options, f"Trading Strategies [{self.current_strategy_name}]")
 
-            if choice == "Select Strategy":
-                self._select_strategy()
-            elif choice == "Configure Parameters":
-                self._configure_params()
-            elif choice == "Run Signals on Stock":
-                self._run_signals()
-            elif choice == "Backtest Strategy":
-                self._backtest()
-            elif choice == "Combine Strategies":
-                self._combine_strategies()
-            elif choice == "Stock Recommendations (20-25)":
+            if choice == "Start Live Scanner (Recommended)":
+                self._run_live_console(auto_trade=False)
+            elif choice == "Start Auto Trader":
+                self._run_live_console(auto_trade=True)
+            elif choice == "Stock Recommendations":
                 self._recommend_stocks()
-            elif choice == "Portfolio Rebalancer":
-                self._run_portfolio_rebalancer()
-            elif choice == "Strategy Leaderboard (Auto)":
-                self._run_strategy_leaderboard()
-            elif choice == "Live Trading Console":
-                self._run_live_console()
+            elif choice == "Backtest Current Strategy":
+                self._backtest()
+            elif choice == "Change Strategy":
+                self._select_strategy()
+            elif choice == "Advanced Tools":
+                self._show_advanced_tools_menu()
             elif choice == "Back to Main Menu":
                 return
+
+    def _show_advanced_tools_menu(self):
+        while True:
+            choice = self.interface.show_menu(
+                [
+                    "Configure Parameters",
+                    "Run Signals on Single Stock",
+                    "Combine Strategies",
+                    "Portfolio Rebalancer",
+                    "Strategy Leaderboard",
+                    "Back",
+                ],
+                "Strategy Advanced Tools",
+            )
+            if choice == "Configure Parameters":
+                self._configure_params()
+            elif choice == "Run Signals on Single Stock":
+                self._run_signals()
+            elif choice == "Combine Strategies":
+                self._combine_strategies()
+            elif choice == "Portfolio Rebalancer":
+                self._run_portfolio_rebalancer()
+            elif choice == "Strategy Leaderboard":
+                self._run_strategy_leaderboard()
+            elif choice == "Back":
+                return
+
+    def start_live_scanner(self):
+        self._run_live_console(auto_trade=False)
 
     def _select_strategy(self):
         names = list(STRATEGY_REGISTRY.keys())
@@ -155,9 +187,7 @@ class StrategyMenu:
         self.interface.console.print(f"  {self.current_strategy.get_description()}")
 
     def _run_signals(self):
-        if not self.current_strategy:
-            self.interface.print_error("No strategy selected. Select one first.")
-            return
+        self._ensure_default_strategy()
 
         symbol = self.interface.input_prompt("Enter stock symbol (e.g. TCS.NS): ")
         period = self.interface.input_prompt("Enter period [3mo]: ") or "3mo"
@@ -196,9 +226,7 @@ class StrategyMenu:
             self.interface.print_error(f"Error: {e}")
 
     def _backtest(self):
-        if not self.current_strategy:
-            self.interface.print_error("No strategy selected. Select one first.")
-            return
+        self._ensure_default_strategy()
 
         symbol = self.interface.input_prompt("Enter stock symbol (e.g. TCS.NS): ")
         period = self.interface.input_prompt("Enter period [1y]: ") or "1y"
@@ -276,9 +304,7 @@ class StrategyMenu:
         self.interface.print_info("You can now use 'Run Signals' or 'Backtest' with the combined strategy.")
 
     def _recommend_stocks(self):
-        if not self.current_strategy:
-            self.interface.print_error("No strategy selected. Select one first.")
-            return
+        self._ensure_default_strategy()
 
         self.interface.print_info(
             f"Scanning default universe of {len(DEFAULT_SCAN_UNIVERSE)} stocks for strategy signals."
@@ -323,68 +349,77 @@ class StrategyMenu:
             right_title=f"SELL Recommendations (Top {top_n})",
         )
 
-    def _run_live_console(self):
-        if not self.current_strategy:
-            self.interface.print_error("No strategy selected. Select one first.")
-            return
+    def _run_live_console(self, auto_trade: bool = False):
+        self._ensure_default_strategy()
 
         self._apply_live_defaults()
+        symbols = list(dict.fromkeys([*DEFAULT_SCAN_UNIVERSE, *FNO_DEFAULT_TICKERS]))
+        self.interface.print_info(
+            f"Strategy: {self.current_strategy_name} | Universe: {len(symbols)} symbols (EQ + F&O watch)."
+        )
+        self.interface.print_info("Latest BUY/SELL triggers are ranked automatically; no manual watchlist required.")
 
-        self.interface.print_info("Real-time CLI console controls can be changed while running.")
-        default_symbols = "RELIANCE.NS,TCS.NS,INFY.NS,HDFCBANK.NS,ICICIBANK.NS"
-        symbols_raw = self.interface.input_prompt(f"Watchlist symbols CSV [{default_symbols}]: ") or default_symbols
         interval = self.interface.input_prompt("Bar interval [5m]: ") or "5m"
         period = self.interface.input_prompt("Data period [5d]: ") or "5d"
         default_refresh = get_live_default_refresh_seconds()
-        default_mode = get_live_default_mode()
-        default_sl = get_live_default_stop_loss_pct()
-        default_tp = get_live_default_take_profit_pct()
-        default_risk = get_live_default_risk_per_trade_pct()
-        default_max_pos = get_live_default_max_position_pct()
-        default_kill = get_kill_switch_enabled()
-        default_hours = get_live_market_hours_only()
-        default_max_orders = get_live_max_orders_per_day()
-        refresh_raw = self.interface.input_prompt(f"Refresh seconds [{default_refresh}]: ") or str(default_refresh)
-        mode_raw = self.interface.input_prompt(f"Execution mode (paper/live) [{default_mode}]: ") or default_mode
-
-        sl_raw = self.interface.input_prompt(f"Stop-loss % [{default_sl}]: ") or str(default_sl)
-        tp_raw = self.interface.input_prompt(f"Take-profit % [{default_tp}]: ") or str(default_tp)
-        risk_raw = self.interface.input_prompt(f"Risk per trade % [{default_risk}]: ") or str(default_risk)
-        maxpos_raw = self.interface.input_prompt(f"Max position % [{default_max_pos}]: ") or str(default_max_pos)
-        kill_raw = self.interface.input_prompt(
-            f"Kill switch (on/off) [{'on' if default_kill else 'off'}]: "
-        ) or ("on" if default_kill else "off")
-        hours_raw = self.interface.input_prompt(
-            f"Market-hours guard (on/off) [{'on' if default_hours else 'off'}]: "
-        ) or ("on" if default_hours else "off")
-        max_orders_raw = self.interface.input_prompt(
-            f"Max orders per day [{default_max_orders}]: "
-        ) or str(default_max_orders)
+        suggested_refresh = max(10, default_refresh)
+        refresh_raw = self.interface.input_prompt(f"Refresh seconds [{suggested_refresh}]: ") or str(suggested_refresh)
         dashboard_raw = self.interface.input_prompt("Launch web dashboard (Y/n): ") or "y"
         browser_raw = self.interface.input_prompt("Open dashboard in browser automatically? (Y/n): ") or "y"
 
-        symbols = [item.strip().upper() for item in symbols_raw.split(",") if item.strip()]
-        if not symbols:
-            self.interface.print_error("Watchlist cannot be empty.")
-            return
-
         try:
             refresh_seconds = max(3, int(refresh_raw))
-            self.live_console.risk_config.stop_loss_pct = max(0.1, float(sl_raw)) / 100.0
-            self.live_console.risk_config.take_profit_pct = max(0.1, float(tp_raw)) / 100.0
-            self.live_console.risk_config.risk_per_trade_pct = max(0.1, float(risk_raw)) / 100.0
-            self.live_console.risk_config.max_position_pct = max(1.0, float(maxpos_raw)) / 100.0
-            self.live_console.risk_config.kill_switch_enabled = kill_raw.strip().lower() == "on"
-            self.live_console.risk_config.market_hours_only = hours_raw.strip().lower() == "on"
-            self.live_console.risk_config.max_orders_per_day = max(1, int(max_orders_raw))
         except ValueError:
-            self.interface.print_error("Invalid numeric input for runtime configuration.")
+            self.interface.print_error("Invalid numeric input for refresh interval.")
             return
 
-        mode = mode_raw.strip().lower()
-        if mode not in {"paper", "live"}:
-            self.interface.print_error("Invalid mode. Using paper mode.")
-            mode = "paper"
+        mode = "paper"
+        if auto_trade:
+            default_mode = get_live_default_mode()
+            default_sl = get_live_default_stop_loss_pct()
+            default_tp = get_live_default_take_profit_pct()
+            default_risk = get_live_default_risk_per_trade_pct()
+            default_max_pos = get_live_default_max_position_pct()
+            default_kill = get_kill_switch_enabled()
+            default_hours = get_live_market_hours_only()
+            default_max_orders = get_live_max_orders_per_day()
+
+            mode_raw = self.interface.input_prompt(f"Execution mode (paper/live) [{default_mode}]: ") or default_mode
+            sl_raw = self.interface.input_prompt(f"Stop-loss % [{default_sl}]: ") or str(default_sl)
+            tp_raw = self.interface.input_prompt(f"Take-profit % [{default_tp}]: ") or str(default_tp)
+            risk_raw = self.interface.input_prompt(f"Risk per trade % [{default_risk}]: ") or str(default_risk)
+            maxpos_raw = self.interface.input_prompt(f"Max position % [{default_max_pos}]: ") or str(default_max_pos)
+            kill_raw = self.interface.input_prompt(
+                f"Kill switch (on/off) [{'on' if default_kill else 'off'}]: "
+            ) or ("on" if default_kill else "off")
+            hours_raw = self.interface.input_prompt(
+                f"Market-hours guard (on/off) [{'on' if default_hours else 'off'}]: "
+            ) or ("on" if default_hours else "off")
+            max_orders_raw = self.interface.input_prompt(
+                f"Max orders per day [{default_max_orders}]: "
+            ) or str(default_max_orders)
+            try:
+                self.live_console.risk_config.stop_loss_pct = max(0.1, float(sl_raw)) / 100.0
+                self.live_console.risk_config.take_profit_pct = max(0.1, float(tp_raw)) / 100.0
+                self.live_console.risk_config.risk_per_trade_pct = max(0.1, float(risk_raw)) / 100.0
+                self.live_console.risk_config.max_position_pct = max(1.0, float(maxpos_raw)) / 100.0
+                self.live_console.risk_config.kill_switch_enabled = kill_raw.strip().lower() == "on"
+                self.live_console.risk_config.market_hours_only = hours_raw.strip().lower() == "on"
+                self.live_console.risk_config.max_orders_per_day = max(1, int(max_orders_raw))
+            except ValueError:
+                self.interface.print_error("Invalid numeric input for auto-trade configuration.")
+                return
+
+            mode = mode_raw.strip().lower()
+            if mode not in {"paper", "live"}:
+                self.interface.print_error("Invalid mode. Using paper mode.")
+                mode = "paper"
+            self.interface.print_info("Auto-trading enabled. Strategy signals can place orders.")
+        else:
+            self.live_console.risk_config.buy_enabled = False
+            self.live_console.risk_config.sell_enabled = False
+            self.interface.print_info("Scanner-only mode enabled (no auto orders).")
+
         launch_web_dashboard = dashboard_raw.strip().lower() not in {"n", "no", "off", "0"}
         open_dashboard_browser = browser_raw.strip().lower() not in {"n", "no", "off", "0"}
         if launch_web_dashboard:
@@ -392,7 +427,11 @@ class StrategyMenu:
                 f"Web dashboard URL: http://127.0.0.1:{get_live_dashboard_port()}"
             )
 
-        save_defaults = (self.interface.input_prompt("Save these values as CLI defaults? (y/N): ") or "n").strip().lower()
+        if auto_trade:
+            save_defaults = (self.interface.input_prompt("Save these values as CLI defaults? (y/N): ") or "n").strip().lower()
+        else:
+            save_defaults = "n"
+
         if save_defaults in {"y", "yes"}:
             set_live_default_refresh_seconds(refresh_seconds)
             set_live_default_mode(mode)
@@ -416,6 +455,7 @@ class StrategyMenu:
                 execution_mode=mode,
                 launch_web_dashboard=launch_web_dashboard,
                 open_dashboard_browser=open_dashboard_browser,
+                auto_trading_enabled=auto_trade,
             )
         except KeyboardInterrupt:
             self.interface.print_info("Stopped live trading console.")
@@ -556,6 +596,9 @@ class StrategyMenu:
 
         if summary:
             self.interface.display_response(summary, "Strategy Average Performance Ranking")
+
+
+
 
 
 

@@ -16,12 +16,12 @@ BROKER_SDKS: dict[str, dict[str, list[str]]] = {
         "imports": ["growwapi", "pyotp"],
     },
     "upstox": {
-        "packages": ["upstox-python-sdk"],
-        "imports": ["upstox_client"],
+        "packages": [],
+        "imports": [],
     },
     "zerodha": {
-        "packages": ["kiteconnect"],
-        "imports": ["kiteconnect"],
+        "packages": [],
+        "imports": [],
     },
 }
 
@@ -59,7 +59,7 @@ def list_broker_sdk_status() -> list[dict[str, Any]]:
                 "broker": status["broker"],
                 "installed": "yes" if status["installed"] else "no",
                 "missing_imports": ", ".join(status["missing_imports"]) if status["missing_imports"] else "-",
-                "packages": ", ".join(status["required_packages"]),
+                "packages": ", ".join(status["required_packages"]) if status["required_packages"] else "-",
             }
         )
     return rows

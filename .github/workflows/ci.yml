@@ -30,6 +30,9 @@ jobs:
       - name: Ruff lint
         run: ruff check src tests
 
+      - name: Secret guard scan
+        run: python scripts/check_staged_secrets.py --all
+
       - name: Run tests
         run: pytest -q
 

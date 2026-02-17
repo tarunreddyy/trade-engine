@@ -1,5 +1,4 @@
 ﻿from importlib import import_module
-from typing import Type
 
 from trade_engine.brokers.base_broker import BaseBroker
 from trade_engine.config.broker_config import get_active_broker
@@ -22,7 +21,7 @@ class BrokerFactory:
         }
 
     @classmethod
-    def _load_broker_class(cls, broker_name: str) -> Type[BaseBroker]:
+    def _load_broker_class(cls, broker_name: str) -> type[BaseBroker]:
         broker_path = cls._broker_registry[broker_name]
         module_name, class_name = broker_path.rsplit(".", 1)
         module = import_module(module_name)

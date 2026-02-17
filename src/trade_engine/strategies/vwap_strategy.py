@@ -1,4 +1,5 @@
 ﻿import pandas as pd
+
 from trade_engine.strategies.base_strategy import BaseStrategy
 
 
@@ -33,5 +34,7 @@ class VWAPStrategy(BaseStrategy):
                 df.iloc[i, df.columns.get_loc("signal")] = -1
 
         return df
+
+
 
 
