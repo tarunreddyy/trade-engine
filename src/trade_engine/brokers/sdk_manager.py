@@ -1,10 +1,8 @@
 import importlib.util
 import subprocess
 import sys
-from typing import Any
 
 from trade_engine.config.broker_config import SUPPORTED_BROKERS
-
 
 BROKER_SDKS: dict[str, dict[str, list[str]]] = {
     "none": {
@@ -34,7 +32,7 @@ def _normalize_broker(broker_name: str) -> str:
     return normalized
 
 
-def get_broker_sdk_status(broker_name: str) -> dict[str, Any]:
+def get_broker_sdk_status(broker_name: str) -> dict[str, object]:
     broker = _normalize_broker(broker_name)
     definition = BROKER_SDKS[broker]
     missing_imports = [
@@ -50,8 +48,8 @@ def get_broker_sdk_status(broker_name: str) -> dict[str, Any]:
     }
 
 
-def list_broker_sdk_status() -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+def list_broker_sdk_status() -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
     for broker in SUPPORTED_BROKERS:
         status = get_broker_sdk_status(broker)
         rows.append(

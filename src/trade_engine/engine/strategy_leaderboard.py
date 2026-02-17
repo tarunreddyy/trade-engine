@@ -1,4 +1,4 @@
-﻿from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import yfinance as yf
@@ -8,7 +8,6 @@ from trade_engine.engine.walk_forward import WalkForwardEvaluator
 from trade_engine.strategies import STRATEGY_REGISTRY
 from trade_engine.strategies.backtester import Backtester
 from trade_engine.strategies.metadata import STRATEGY_METADATA
-
 
 
 class StrategyLeaderboard:

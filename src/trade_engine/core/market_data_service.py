@@ -1,10 +1,7 @@
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Any
 
 import yfinance as yf
-
 
 NSE_INDEX_TICKERS: dict[str, str] = {
     "NIFTY 50": "^NSEI",

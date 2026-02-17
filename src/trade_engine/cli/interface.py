@@ -127,8 +127,8 @@ class CLInterface:
     def _show_menu_windows(self, options: list[str], title: str, slug_map: dict[str, str]) -> str:
         try:
             import msvcrt
-        except Exception:
-            raise RuntimeError("msvcrt unavailable")
+        except Exception as error:
+            raise RuntimeError("msvcrt unavailable") from error
 
         prefix = "> "
         buffer = ""
@@ -165,7 +165,7 @@ class CLInterface:
                 prev_len = self._render_inline_prompt(prefix, buffer, prev_len)
                 continue
 
-            if character in {"\b", "\x08"}:
+            if character == "\x08":
                 buffer = buffer[:-1]
                 prev_len = self._render_inline_prompt(prefix, buffer, prev_len)
                 continue

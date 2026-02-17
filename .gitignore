@@ -25,10 +25,13 @@ ENV/
 
 # Test/tool caches
 .pytest_cache/
+.pytest_tmp/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
+pytest-cache-files-*/
+pytest_temp_root/
 
 # Notebook/system
 .ipynb_checkpoints/
@@ -42,6 +45,8 @@ data/runtime/order_journal.sqlite
 data/runtime/metrics_latest.json
 data/runtime/live_dashboard.json
 data/runtime/live_dashboard_controls.json
+data/runtime/test_tmp/
+.tmp/
 
 # Credential-like local files
 **/cli_settings.json
