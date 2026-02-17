@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from trade_engine.brokers.base_broker import BaseBroker
+from trade_engine.core.event_bus import EventBus
 from trade_engine.config.trading_config import (
     get_kill_switch_enabled,
     get_live_auto_resume_session,
@@ -17,6 +18,7 @@ from trade_engine.config.trading_config import (
     get_live_session_state_file,
 )
 from trade_engine.engine.execution_router import ExecutionRouter
+from trade_engine.engine.observability import RuntimeMetrics
 from trade_engine.engine.position_sizer import PositionSizer
 from trade_engine.engine.risk_engine import RiskConfig, RiskEngine
 from trade_engine.engine.session_state_store import SessionStateStore
@@ -50,6 +52,9 @@ class LiveTradingConsole:
         self.position_sizer = PositionSizer()
         self.router = ExecutionRouter(mode="paper", broker=self.broker, risk_engine=self.risk_engine)
         self.state_store = SessionStateStore(get_live_session_state_file())
+        self.event_bus = EventBus()
+        self.metrics = RuntimeMetrics()
+        self.event_bus.subscribe("*", lambda evt: self.metrics.on_event(evt.event_type))
 
         self.cash = initial_capital
         self.positions: Dict[str, PositionState] = {}
@@ -86,6 +91,7 @@ class LiveTradingConsole:
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.event_log.append(f"[{timestamp}] {message}")
         self.event_log = self.event_log[-30:]
+        self.event_bus.publish("log_event", {"message": message})
 
     def _serialize_state(self, symbols: List[str]) -> dict:
         return {
@@ -318,6 +324,7 @@ class LiveTradingConsole:
 
     def _enter_position(self, symbol: str, quantity: int, price: float, side: str):
         order = self.router.route_order(symbol=symbol, side=side, quantity=quantity, price=price)
+        self.metrics.on_order(order.get("status", ""))
         if order["status"] in {"FILLED", "SENT"}:
             direction = "LONG" if side == "BUY" else "SHORT"
             if direction == "LONG":
@@ -332,8 +339,22 @@ class LiveTradingConsole:
                 opened_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             )
             self._log_event(f"{symbol}: {side} {quantity} @ {price:.2f} [{order['status']}]")
+            self.event_bus.publish(
+                "order_placed",
+                {
+                    "symbol": symbol,
+                    "side": side,
+                    "quantity": quantity,
+                    "price": price,
+                    "status": order.get("status"),
+                },
+            )
         elif order["status"] != "SKIPPED":
             self._log_event(f"{symbol}: {side} rejected ({order.get('reason', 'unknown')})")
+            self.event_bus.publish(
+                "order_rejected",
+                {"symbol": symbol, "side": side, "reason": order.get("reason", "unknown")},
+            )
 
     def _exit_position(self, symbol: str, price: float, reason: str):
         position = self.positions.get(symbol)
@@ -347,6 +368,7 @@ class LiveTradingConsole:
             price=price,
             is_exit=True,
         )
+        self.metrics.on_order(order.get("status", ""))
         if order["status"] in {"FILLED", "SENT"}:
             if position.side == "LONG":
                 pnl = (price - position.entry_price) * position.quantity
@@ -360,6 +382,10 @@ class LiveTradingConsole:
                 f"PnL={pnl:.2f} [{order['status']}]"
             )
             del self.positions[symbol]
+            self.event_bus.publish(
+                "position_closed",
+                {"symbol": symbol, "side": exit_side, "pnl": pnl, "reason": reason},
+            )
         elif order["status"] != "SKIPPED":
             self._log_event(f"{symbol}: SELL rejected ({order.get('reason', 'unknown')})")
 
@@ -389,6 +415,7 @@ class LiveTradingConsole:
             price=price,
             is_exit=is_exit,
         )
+        self.metrics.on_order(order.get("status", ""))
         if order.get("status") not in {"FILLED", "SENT"}:
             if order.get("status") != "SKIPPED":
                 self._log_event(f"{symbol}: {side} rejected ({order.get('reason', 'unknown')})")
@@ -559,6 +586,16 @@ class LiveTradingConsole:
         self.equity_history.append(equity)
         self.equity_history = self.equity_history[-200:]
         spark = self._sparkline(self.equity_history)
+        metrics_payload = self.metrics.snapshot(
+            equity=equity,
+            cash=self.cash,
+            realized_pnl=self.realized_pnl,
+            open_positions=len(self.positions),
+            orders_today=self.router.orders_today,
+            recent_events=self.event_log,
+        )
+        self.metrics.export(metrics_payload)
+        self.event_bus.publish("runtime_snapshot", metrics_payload)
 
         summary = Table(title="Account Summary", show_header=True, header_style="bold green")
         summary.add_column("Cash")
@@ -714,7 +751,7 @@ class LiveTradingConsole:
                 self._log_event(f"Removed {symbol} from watchlist.")
             return True
 
-        self._log_event("Unknown command. Type 'help' for controls.")
+            self._log_event("Unknown command. Type 'help' for controls.")
         return True
 
     def run(

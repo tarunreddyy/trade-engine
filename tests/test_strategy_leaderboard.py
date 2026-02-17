@@ -23,17 +23,23 @@ def test_strategy_leaderboard_build_with_monkeypatched_data(monkeypatch):
     def fake_fetch(symbol, period, interval):
         return symbol, sample
 
-    def fake_eval(self, strategy_name, symbol, df, initial_capital):
+    def fake_eval(self, strategy_name, symbol, df, initial_capital, oos_only=False, walk_forward_windows=3):
         return {
             "strategy": strategy_name,
             "symbol": symbol,
             "score": 10.0 if symbol.endswith("A") else 5.0,
+            "evaluation_mode": "oos" if oos_only else "full_history",
             "total_return_pct": 12.0,
             "sharpe_ratio": 1.1,
             "max_drawdown_pct": -4.0,
             "win_rate_pct": 55.0,
             "trades": 10,
             "final_value": 112000.0,
+            "total_costs": 120.0,
+            "oos_windows": walk_forward_windows if oos_only else 0,
+            "category": "Trend",
+            "risk_profile": "medium",
+            "preferred_timeframe": "1d",
         }
 
     monkeypatch.setattr(StrategyLeaderboard, "_fetch_history", staticmethod(fake_fetch))

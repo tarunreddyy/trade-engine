@@ -39,3 +39,4 @@ Thumbs.db
 data/runtime/live_session_state.json
 data/runtime/cli_settings.json
 data/runtime/order_journal.sqlite
+data/runtime/metrics_latest.json

@@ -36,6 +36,7 @@ Download `trade-engine.exe` from GitHub Release artifacts.
    - live trading defaults (SL/TP/risk/max position)
    - safety controls (kill switch, market-hours guard, max orders/day)
    - order journal path (SQLite) for persistent order lifecycle tracking
+   - runtime observability output (`data/runtime/metrics_latest.json`)
 3. Optional: keep `.env` as fallback only (if CLI settings file is missing).
 4. You can still run with:
    ```bash
@@ -64,6 +65,11 @@ pyinstaller --clean trade_engine.spec
   - builds wheel/sdist and publishes to PyPI (Trusted Publishing)
   - builds Windows `trade-engine.exe` and uploads release artifact
 - Full operator steps are in `RELEASE.md`.
+
+## Runtime Analytics
+- Live console emits runtime events internally (event-bus pattern).
+- Metrics snapshots are exported continuously to `data/runtime/metrics_latest.json`.
+- Strategy leaderboard supports `full` and `oos` (walk-forward out-of-sample) evaluation modes.
 
 ## Project Structure
 ```text

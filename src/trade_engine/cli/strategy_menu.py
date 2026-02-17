@@ -1,6 +1,6 @@
 ﻿from trade_engine.core.stock_visualizer import StockVisualizer
 from trade_engine.core.live_trading_console import LiveTradingConsole
-from trade_engine.strategies import STRATEGY_REGISTRY
+from trade_engine.strategies import STRATEGY_DETAILS, STRATEGY_REGISTRY
 from trade_engine.strategies.strategy_combiner import StrategyCombiner
 from trade_engine.strategies.backtester import Backtester
 from trade_engine.engine.portfolio_rebalancer import PortfolioRebalancer
@@ -113,6 +113,11 @@ class StrategyMenu:
         self.current_strategy_name = choice
         self.interface.print_success(f"Selected: {choice}")
         self.interface.console.print(f"  {self.current_strategy.get_description()}")
+        metadata = STRATEGY_DETAILS.get(choice)
+        if metadata:
+            self.interface.console.print(
+                f"  Category: {metadata.category} | Risk: {metadata.risk_profile} | Timeframe: {metadata.preferred_timeframe}"
+            )
 
     def _configure_params(self):
         if not self.current_strategy:
@@ -499,14 +504,18 @@ class StrategyMenu:
         period = self.interface.input_prompt("Backtest period [1y]: ") or "1y"
         interval = self.interface.input_prompt("Backtest interval [1d]: ") or "1d"
         top_n_raw = self.interface.input_prompt("Top rows to display [25]: ") or "25"
+        eval_mode_raw = self.interface.input_prompt("Evaluation mode (full/oos) [full]: ") or "full"
+        windows_raw = self.interface.input_prompt("Walk-forward windows [3]: ") or "3"
 
         try:
             universe_count = max(5, min(len(DEFAULT_SCAN_UNIVERSE), int(universe_count_raw)))
             top_n = max(5, min(100, int(top_n_raw)))
+            walk_forward_windows = max(1, int(windows_raw))
         except ValueError:
             self.interface.print_error("Invalid numeric input.")
             return
 
+        oos_only = eval_mode_raw.strip().lower() == "oos"
         selected_universe = DEFAULT_SCAN_UNIVERSE[:universe_count]
         leaderboard = self.interface.show_loading(
             "[bold cyan]Computing strategy leaderboard across symbols...[/bold cyan]",
@@ -516,6 +525,8 @@ class StrategyMenu:
             interval,
             top_n,
             DEFAULT_INITIAL_CAPITAL,
+            oos_only,
+            walk_forward_windows,
         )
         if not leaderboard:
             self.interface.print_error("Leaderboard computation failed.")

@@ -4,7 +4,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import yfinance as yf
 
 from trade_engine.config.strategy_config import DEFAULT_INITIAL_CAPITAL, STRATEGY_DEFAULTS
+from trade_engine.engine.walk_forward import WalkForwardEvaluator
 from trade_engine.strategies import STRATEGY_REGISTRY
+from trade_engine.strategies.metadata import STRATEGY_METADATA
 from trade_engine.strategies.backtester import Backtester
 
 
@@ -13,6 +15,7 @@ class StrategyLeaderboard:
 
     def __init__(self, max_workers: int = 8):
         self.max_workers = max_workers
+        self.walk_forward = WalkForwardEvaluator()
 
     @staticmethod
     def _fetch_history(symbol: str, period: str, interval: str):
@@ -67,16 +70,30 @@ class StrategyLeaderboard:
         symbol: str,
         df,
         initial_capital: float,
+        oos_only: bool = False,
+        walk_forward_windows: int = 3,
     ) -> Optional[dict]:
         try:
             strategy = self._build_strategy(strategy_name)
-            backtester = Backtester()
-            result = backtester.run_backtest(df.copy(), strategy, initial_capital=initial_capital)
+            if oos_only:
+                result = self.walk_forward.evaluate(
+                    df.copy(),
+                    strategy,
+                    initial_capital=initial_capital,
+                    windows=walk_forward_windows,
+                )
+                if not result:
+                    return None
+            else:
+                backtester = Backtester()
+                result = backtester.run_backtest(df.copy(), strategy, initial_capital=initial_capital)
             score = self._score_result(result)
+            meta = STRATEGY_METADATA.get(strategy_name)
             return {
                 "strategy": strategy_name,
                 "symbol": symbol,
                 "score": score,
+                "evaluation_mode": "oos" if oos_only else "full_history",
                 "total_return_pct": result.get("total_return", 0.0),
                 "sharpe_ratio": result.get("sharpe_ratio", 0.0),
                 "max_drawdown_pct": result.get("max_drawdown", 0.0),
@@ -84,6 +101,10 @@ class StrategyLeaderboard:
                 "trades": result.get("total_trades", 0),
                 "final_value": result.get("final_value", 0.0),
                 "total_costs": result.get("total_costs", 0.0),
+                "oos_windows": result.get("oos_windows", 0),
+                "category": meta.category if meta else "unknown",
+                "risk_profile": meta.risk_profile if meta else "unknown",
+                "preferred_timeframe": meta.preferred_timeframe if meta else "unknown",
             }
         except Exception:
             return None
@@ -95,6 +116,8 @@ class StrategyLeaderboard:
         interval: str = "1d",
         top_n: int = 25,
         initial_capital: float = DEFAULT_INITIAL_CAPITAL,
+        oos_only: bool = False,
+        walk_forward_windows: int = 3,
     ) -> dict:
         unique_symbols = [symbol.upper() for symbol in symbols if symbol.strip()]
         if not unique_symbols:
@@ -133,7 +156,15 @@ class StrategyLeaderboard:
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = [
-                executor.submit(self._evaluate_pair, strategy_name, symbol, df, initial_capital)
+                executor.submit(
+                    self._evaluate_pair,
+                    strategy_name,
+                    symbol,
+                    df,
+                    initial_capital,
+                    oos_only,
+                    walk_forward_windows,
+                )
                 for strategy_name, symbol, df in eval_jobs
             ]
             for future in as_completed(futures):
@@ -173,7 +204,8 @@ class StrategyLeaderboard:
             "strategy_summary": strategy_summary,
             "symbols_scanned": len(data_cache),
             "pair_count": len(rows),
-            "message": f"Evaluated {len(rows)} strategy-symbol pairs.",
+            "message": f"Evaluated {len(rows)} strategy-symbol pairs ({'OOS' if oos_only else 'full history'}).",
+            "evaluation_mode": "oos" if oos_only else "full_history",
         }
 
 

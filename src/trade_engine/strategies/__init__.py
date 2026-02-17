@@ -9,6 +9,7 @@ from trade_engine.strategies.ema_crossover_strategy import EMACrossoverStrategy
 from trade_engine.strategies.adx_trend_strategy import ADXTrendStrategy
 from trade_engine.strategies.stoch_rsi_strategy import StochRSIStrategy
 from trade_engine.strategies.donchian_breakout_strategy import DonchianBreakoutStrategy
+from trade_engine.strategies.metadata import STRATEGY_METADATA
 
 STRATEGY_REGISTRY = {
     "SMA Crossover": SMACrossoverStrategy,
@@ -23,5 +24,7 @@ STRATEGY_REGISTRY = {
     "Supertrend": SupertrendStrategy,
     "HLC3 Pivot Breakout": HLC3PivotBreakoutStrategy,
 }
+
+STRATEGY_DETAILS = STRATEGY_METADATA
 
 
