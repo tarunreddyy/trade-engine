@@ -7,7 +7,12 @@ from typing import Any, Optional
 from dotenv import load_dotenv
 
 from trade_engine.brokers.base_broker import BaseBroker
-from trade_engine.config.groww_config import GROWW_API_KEY, GROWW_API_SECRET
+from trade_engine.config.groww_config import (
+    get_groww_access_token,
+    get_groww_api_key,
+    get_groww_api_secret,
+    set_groww_access_token,
+)
 from trade_engine.exception.exception import CustomException
 from trade_engine.logging.logger import logging
 
@@ -19,13 +24,13 @@ class GrowwBroker(BaseBroker):
 
     def __init__(
         self,
-        groww_api_key: Optional[str] = GROWW_API_KEY,
-        groww_api_secret: Optional[str] = GROWW_API_SECRET,
+        groww_api_key: Optional[str] = None,
+        groww_api_secret: Optional[str] = None,
         auth_token: Optional[str] = None,
     ):
-        self.groww_api_key = groww_api_key
-        self.groww_api_secret = groww_api_secret
-        self.groww_auth_token = auth_token or os.getenv("GROWW_ACCESS_TOKEN")
+        self.groww_api_key = groww_api_key or get_groww_api_key()
+        self.groww_api_secret = groww_api_secret or get_groww_api_secret()
+        self.groww_auth_token = auth_token or get_groww_access_token() or os.getenv("GROWW_ACCESS_TOKEN")
 
     @staticmethod
     def _get_groww_api_class():
@@ -77,6 +82,7 @@ class GrowwBroker(BaseBroker):
 
             self.groww_auth_token = access_token
             os.environ["GROWW_ACCESS_TOKEN"] = access_token
+            set_groww_access_token(access_token)
             logging.info("Groww access token generated successfully.")
             return access_token
         except CustomException:

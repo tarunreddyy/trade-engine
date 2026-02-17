@@ -1,29 +1,30 @@
-﻿import os
 import ast
-from trade_engine.core.llm_factory import LLMFactory
-from trade_engine.config.llm_config import LLM_PROVIDER
+import os
 
-STRATEGY_TEMPLATE = '''
+from trade_engine.config.llm_config import get_llm_provider
+from trade_engine.core.llm_factory import LLMFactory
+
+STRATEGY_TEMPLATE = """
 from trade_engine.strategies.base_strategy import BaseStrategy
 import pandas as pd
 import ta
 
 
 class GeneratedStrategy(BaseStrategy):
-    """AI-generated trading strategy."""
+    \"\"\"AI-generated trading strategy.\"\"\"
 
     def __init__(self):
         pass
 
     def get_description(self) -> str:
-        return "AI-generated strategy: <DESCRIPTION>"
+        return \"AI-generated strategy: <DESCRIPTION>\"
 
     def calculate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
-        df["signal"] = 0
+        df[\"signal\"] = 0
         # Strategy logic here
         return df
-'''
+"""
 
 SYSTEM_PROMPT = f"""You are a Python trading strategy code generator.
 You must generate valid Python code that extends BaseStrategy.
@@ -43,14 +44,13 @@ Here is the template to follow:
 
 
 class AIStrategyBuilder:
-    """Use an LLM to generate trading strategy code from English descriptions."""
+    """Use an LLM to generate trading strategy code from plain English."""
 
     def __init__(self, provider=None):
-        self.provider = provider or LLM_PROVIDER
+        self.provider = provider or get_llm_provider()
         self.client = LLMFactory.create_llm_client(self.provider)
 
     def generate_strategy_code(self, description: str) -> str:
-        """Generate strategy Python code from a natural language description."""
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Generate a trading strategy that: {description}"},
@@ -59,7 +59,6 @@ class AIStrategyBuilder:
         return self._clean_code_output(raw)
 
     def save_strategy(self, code: str, filename: str) -> str:
-        """Save generated strategy code to strategies/generated/ folder."""
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         gen_dir = os.path.join(base_dir, "strategies", "generated")
         os.makedirs(gen_dir, exist_ok=True)
@@ -67,28 +66,21 @@ class AIStrategyBuilder:
         if not filename.endswith(".py"):
             filename += ".py"
         filepath = os.path.join(gen_dir, filename)
-        with open(filepath, "w") as f:
-            f.write(code)
+        with open(filepath, "w", encoding="utf-8") as file:
+            file.write(code)
         return filepath
 
     def _clean_code_output(self, code: str) -> str:
-        """Strip markdown fences and validate syntax."""
-        # Remove markdown code fences
-        code = code.strip()
-        if code.startswith("```"):
-            lines = code.split("\n")
-            # Remove first line (```python) and last line (```)
-            lines = lines[1:]
+        cleaned = code.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")[1:]
             if lines and lines[-1].strip() == "```":
                 lines = lines[:-1]
-            code = "\n".join(lines)
+            cleaned = "\n".join(lines)
 
-        # Validate syntax
         try:
-            ast.parse(code)
-        except SyntaxError as e:
-            raise ValueError(f"Generated code has syntax errors: {e}")
+            ast.parse(cleaned)
+        except SyntaxError as error:
+            raise ValueError(f"Generated code has syntax errors: {error}") from error
 
-        return code
-
-
+        return cleaned

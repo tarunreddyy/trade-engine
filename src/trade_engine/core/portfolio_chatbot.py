@@ -7,7 +7,7 @@ from openai import OpenAI
 
 from trade_engine.brokers.base_broker import BaseBroker
 from trade_engine.brokers.broker_factory import BrokerFactory
-from trade_engine.config.openai_config import OPENAI_API_KEY
+from trade_engine.config.openai_config import get_openai_api_key
 from trade_engine.logging.logger import logging
 from trade_engine.exception.exception import CustomException
 
@@ -18,7 +18,7 @@ class PortfolioChatbot:
     
     def __init__(self, broker: Optional[BaseBroker] = None, use_reasoning_model: bool = False):
         self.broker = broker or BrokerFactory.create_broker()
-        self.client = OpenAI(api_key=OPENAI_API_KEY)
+        self.client = OpenAI(api_key=get_openai_api_key())
         self.conversation_history: List[Dict[str, str]] = []
         self.portfolio_data: Optional[Dict[str, Any]] = None
         self.positions_data: Optional[Dict[str, Any]] = None

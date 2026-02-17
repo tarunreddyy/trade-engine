@@ -37,3 +37,4 @@ Thumbs.db
 
 # Runtime state
 data/runtime/live_session_state.json
+data/runtime/cli_settings.json

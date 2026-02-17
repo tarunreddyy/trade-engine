@@ -1,5 +1,7 @@
-﻿from dataclasses import dataclass
-from typing import Tuple
+from dataclasses import dataclass
+from datetime import datetime, time
+from typing import Optional, Tuple
+from zoneinfo import ZoneInfo
 
 
 @dataclass
@@ -12,10 +14,17 @@ class RiskConfig:
     take_profit_pct: float = 0.04
     buy_enabled: bool = True
     sell_enabled: bool = True
+    kill_switch_enabled: bool = False
+    market_hours_only: bool = True
+    max_orders_per_day: int = 40
 
 
 class RiskEngine:
-    """Simple pre-trade and in-trade risk checks for CLI runtime."""
+    """Pre-trade and in-trade risk checks for CLI runtime."""
+
+    IST_ZONE = "Asia/Kolkata"
+    MARKET_OPEN = time(9, 15)
+    MARKET_CLOSE = time(15, 30)
 
     def __init__(self, config: RiskConfig):
         self.config = config
@@ -55,11 +64,7 @@ class RiskEngine:
         max_loss_abs = self.config.initial_capital * self.config.max_daily_loss_pct
         return realized_pnl <= -abs(max_loss_abs)
 
-    def check_exit(
-        self,
-        entry_price: float,
-        current_price: float,
-    ) -> Tuple[bool, str]:
+    def check_exit(self, entry_price: float, current_price: float) -> Tuple[bool, str]:
         if entry_price <= 0:
             return False, "NONE"
 
@@ -70,11 +75,7 @@ class RiskEngine:
             return True, "TAKE_PROFIT"
         return False, "NONE"
 
-    def check_exit_short(
-        self,
-        entry_price: float,
-        current_price: float,
-    ) -> Tuple[bool, str]:
+    def check_exit_short(self, entry_price: float, current_price: float) -> Tuple[bool, str]:
         if entry_price <= 0:
             return False, "NONE"
 
@@ -85,4 +86,31 @@ class RiskEngine:
             return True, "TAKE_PROFIT"
         return False, "NONE"
 
+    def is_market_open(self, now_utc: Optional[datetime] = None) -> bool:
+        now_utc = now_utc or datetime.utcnow()
+        now_ist = now_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo(self.IST_ZONE))
+        if now_ist.weekday() >= 5:
+            return False
+        local_time = now_ist.time()
+        return self.MARKET_OPEN <= local_time <= self.MARKET_CLOSE
 
+    def pre_order_guard(
+        self,
+        mode: str,
+        orders_today: int,
+        is_exit: bool = False,
+        now_utc: Optional[datetime] = None,
+    ) -> Tuple[bool, str]:
+        if self.config.kill_switch_enabled and not is_exit:
+            return False, "kill_switch_enabled"
+
+        if mode != "live":
+            return True, "ok"
+
+        if self.config.market_hours_only and not self.is_market_open(now_utc=now_utc):
+            return False, "outside_market_hours"
+
+        if not is_exit and orders_today >= max(1, int(self.config.max_orders_per_day)):
+            return False, "max_orders_per_day_reached"
+
+        return True, "ok"

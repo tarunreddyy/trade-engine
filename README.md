@@ -24,19 +24,19 @@ pip install "trade-engine-cli[groww]"
 Download `trade-engine.exe` from GitHub Release artifacts.
 
 ## Quick Start
-1. Copy env file:
-   ```bash
-   copy .env.template .env
-   ```
-2. Set broker in `.env`:
-   - `BROKER=groww`
-   - `BROKER=upstox`
-   - `BROKER=zerodha`
-3. Run:
+1. Run:
    ```bash
    trade-engine
    ```
-   or
+2. Open `Settings` in the main menu and configure:
+   - active broker
+   - broker credentials
+   - LLM provider/API keys
+   - Pinecone settings
+   - live trading defaults (SL/TP/risk/max position)
+   - safety controls (kill switch, market-hours guard, max orders/day)
+3. Optional: keep `.env` as fallback only (if CLI settings file is missing).
+4. You can still run with:
    ```bash
    python main.py
    ```

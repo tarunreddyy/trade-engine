@@ -9,7 +9,13 @@ from rich.panel import Panel
 from rich.table import Table
 
 from trade_engine.brokers.base_broker import BaseBroker
-from trade_engine.config.trading_config import LIVE_AUTO_RESUME_SESSION, LIVE_SESSION_STATE_FILE
+from trade_engine.config.trading_config import (
+    get_kill_switch_enabled,
+    get_live_auto_resume_session,
+    get_live_market_hours_only,
+    get_live_max_orders_per_day,
+    get_live_session_state_file,
+)
 from trade_engine.engine.execution_router import ExecutionRouter
 from trade_engine.engine.position_sizer import PositionSizer
 from trade_engine.engine.risk_engine import RiskConfig, RiskEngine
@@ -37,10 +43,13 @@ class LiveTradingConsole:
         self.interface = interface
         self.broker = broker
         self.risk_config = RiskConfig(initial_capital=initial_capital)
+        self.risk_config.kill_switch_enabled = get_kill_switch_enabled()
+        self.risk_config.market_hours_only = get_live_market_hours_only()
+        self.risk_config.max_orders_per_day = get_live_max_orders_per_day()
         self.risk_engine = RiskEngine(self.risk_config)
         self.position_sizer = PositionSizer()
-        self.router = ExecutionRouter(mode="paper", broker=self.broker)
-        self.state_store = SessionStateStore(LIVE_SESSION_STATE_FILE)
+        self.router = ExecutionRouter(mode="paper", broker=self.broker, risk_engine=self.risk_engine)
+        self.state_store = SessionStateStore(get_live_session_state_file())
 
         self.cash = initial_capital
         self.positions: Dict[str, PositionState] = {}
@@ -97,6 +106,9 @@ class LiveTradingConsole:
                 "take_profit_pct": self.risk_config.take_profit_pct,
                 "buy_enabled": self.risk_config.buy_enabled,
                 "sell_enabled": self.risk_config.sell_enabled,
+                "kill_switch_enabled": self.risk_config.kill_switch_enabled,
+                "market_hours_only": self.risk_config.market_hours_only,
+                "max_orders_per_day": self.risk_config.max_orders_per_day,
             },
         }
 
@@ -140,6 +152,15 @@ class LiveTradingConsole:
             self.risk_config.take_profit_pct = float(risk.get("take_profit_pct", self.risk_config.take_profit_pct))
             self.risk_config.buy_enabled = bool(risk.get("buy_enabled", self.risk_config.buy_enabled))
             self.risk_config.sell_enabled = bool(risk.get("sell_enabled", self.risk_config.sell_enabled))
+            self.risk_config.kill_switch_enabled = bool(
+                risk.get("kill_switch_enabled", self.risk_config.kill_switch_enabled)
+            )
+            self.risk_config.market_hours_only = bool(
+                risk.get("market_hours_only", self.risk_config.market_hours_only)
+            )
+            self.risk_config.max_orders_per_day = int(
+                risk.get("max_orders_per_day", self.risk_config.max_orders_per_day)
+            )
 
             self.runtime_watchlist = [
                 str(item).upper() for item in state.get("watchlist", []) if str(item).strip()
@@ -319,7 +340,13 @@ class LiveTradingConsole:
         if not position:
             return
         exit_side = "SELL" if position.side == "LONG" else "BUY"
-        order = self.router.route_order(symbol=symbol, side=exit_side, quantity=position.quantity, price=price)
+        order = self.router.route_order(
+            symbol=symbol,
+            side=exit_side,
+            quantity=position.quantity,
+            price=price,
+            is_exit=True,
+        )
         if order["status"] in {"FILLED", "SENT"}:
             if position.side == "LONG":
                 pnl = (price - position.entry_price) * position.quantity
@@ -351,13 +378,22 @@ class LiveTradingConsole:
         if quantity <= 0 or price <= 0:
             return {"status": "REJECTED", "reason": "invalid_quantity_or_price"}
 
-        order = self.router.route_order(symbol=symbol, side=side, quantity=quantity, price=price)
+        position = self.positions.get(symbol)
+        is_exit = bool(
+            position and ((position.side == "LONG" and side == "SELL") or (position.side == "SHORT" and side == "BUY"))
+        )
+        order = self.router.route_order(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            price=price,
+            is_exit=is_exit,
+        )
         if order.get("status") not in {"FILLED", "SENT"}:
             if order.get("status") != "SKIPPED":
                 self._log_event(f"{symbol}: {side} rejected ({order.get('reason', 'unknown')})")
             return order
 
-        position = self.positions.get(symbol)
         realized_delta = 0.0
 
         if not position:
@@ -470,6 +506,9 @@ class LiveTradingConsole:
         metrics.add_column("TP %")
         metrics.add_column("Risk/Trade %")
         metrics.add_column("Max Pos %")
+        metrics.add_column("Kill")
+        metrics.add_column("MktHours")
+        metrics.add_column("Orders")
         metrics.add_row(
             self.router.mode.upper(),
             "ON" if self.risk_config.buy_enabled else "OFF",
@@ -478,6 +517,9 @@ class LiveTradingConsole:
             f"{self.risk_config.take_profit_pct * 100:.2f}",
             f"{self.risk_config.risk_per_trade_pct * 100:.2f}",
             f"{self.risk_config.max_position_pct * 100:.2f}",
+            "ON" if self.risk_config.kill_switch_enabled else "OFF",
+            "ON" if self.risk_config.market_hours_only else "OFF",
+            f"{self.router.orders_today}/{self.risk_config.max_orders_per_day}",
         )
 
         watch = Table(title=f"Watchlist - {strategy_name}", show_header=True, header_style="bold cyan")
@@ -555,7 +597,7 @@ class LiveTradingConsole:
         self.interface.console.print(
             "[bold white]Commands:[/bold white] "
             "buy on|off, sell on|off, sl <pct>, tp <pct>, risk <pct>, maxpos <pct>, mode paper|live, "
-            "add <SYM>, remove <SYM>, clearstate, help, quit"
+            "kill on|off, hours on|off, maxorders <n>, add <SYM>, remove <SYM>, clearstate, help, quit"
         )
 
     def _timed_command(self, timeout_seconds: int) -> str:
@@ -633,6 +675,24 @@ class LiveTradingConsole:
             except ValueError:
                 self._log_event("Invalid percentage value.")
             return True
+        if key == "kill" and len(tokens) > 1:
+            enabled = tokens[1].lower() == "on"
+            self.risk_config.kill_switch_enabled = enabled
+            self._log_event(f"Kill switch set to {'ON' if enabled else 'OFF'}.")
+            return True
+        if key == "hours" and len(tokens) > 1:
+            enabled = tokens[1].lower() == "on"
+            self.risk_config.market_hours_only = enabled
+            self._log_event(f"Market-hours guard set to {'ON' if enabled else 'OFF'}.")
+            return True
+        if key == "maxorders" and len(tokens) > 1:
+            try:
+                value = max(1, int(tokens[1]))
+                self.risk_config.max_orders_per_day = value
+                self._log_event(f"Max orders/day set to {value}.")
+            except ValueError:
+                self._log_event("Invalid max orders value.")
+            return True
         if key == "mode" and len(tokens) > 1:
             mode = tokens[1].lower()
             if mode in {"paper", "live"}:
@@ -666,8 +726,11 @@ class LiveTradingConsole:
         period: str = "5d",
         interval: str = "5m",
         execution_mode: str = "paper",
-        resume_session: bool = LIVE_AUTO_RESUME_SESSION,
+        resume_session: Optional[bool] = None,
     ):
+        if resume_session is None:
+            resume_session = get_live_auto_resume_session()
+
         symbols = [s.upper() for s in symbols if s.strip()]
         self.runtime_watchlist = list(symbols)
 

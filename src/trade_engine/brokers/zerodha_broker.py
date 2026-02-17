@@ -1,25 +1,21 @@
-﻿import os
 from typing import Any, Optional
 
-from dotenv import load_dotenv
-
 from trade_engine.brokers.base_broker import BaseBroker
-
-load_dotenv()
+from trade_engine.config.settings_store import get_setting
 
 
 class ZerodhaBroker(BaseBroker):
     """Zerodha adapter stub."""
 
     def __init__(self):
-        self.api_key = os.getenv("ZERODHA_API_KEY")
-        self.api_secret = os.getenv("ZERODHA_API_SECRET")
+        self.api_key = str(get_setting("broker.zerodha.api_key", "", str) or "").strip()
+        self.api_secret = str(get_setting("broker.zerodha.api_secret", "", str) or "").strip()
 
     @staticmethod
     def _not_implemented(method_name: str):
         raise NotImplementedError(
             f"ZerodhaBroker.{method_name} is not implemented yet. "
-            "Set BROKER=groww or implement the Zerodha adapter."
+            "Switch broker to groww in CLI Settings or implement the Zerodha adapter."
         )
 
     def authenticate(self) -> str:
@@ -95,5 +91,3 @@ class ZerodhaBroker(BaseBroker):
 
     def search_instrument(self, symbol: str, exchange: Optional[str] = None) -> Any:
         self._not_implemented("search_instrument")
-
-

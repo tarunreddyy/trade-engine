@@ -9,12 +9,24 @@ from trade_engine.engine.strategy_leaderboard import StrategyLeaderboard
 from trade_engine.config.market_universe import DEFAULT_SCAN_UNIVERSE
 from trade_engine.config.strategy_config import STRATEGY_DEFAULTS, COMBINE_MODES, DEFAULT_INITIAL_CAPITAL
 from trade_engine.config.trading_config import (
-    LIVE_DEFAULT_MODE,
-    LIVE_DEFAULT_MAX_POSITION_PCT,
-    LIVE_DEFAULT_REFRESH_SECONDS,
-    LIVE_DEFAULT_RISK_PER_TRADE_PCT,
-    LIVE_DEFAULT_STOP_LOSS_PCT,
-    LIVE_DEFAULT_TAKE_PROFIT_PCT,
+    get_kill_switch_enabled,
+    get_live_default_mode,
+    get_live_default_max_position_pct,
+    get_live_market_hours_only,
+    get_live_max_orders_per_day,
+    get_live_default_refresh_seconds,
+    get_live_default_risk_per_trade_pct,
+    get_live_default_stop_loss_pct,
+    get_live_default_take_profit_pct,
+    set_kill_switch_enabled,
+    set_live_default_max_position_pct,
+    set_live_market_hours_only,
+    set_live_max_orders_per_day,
+    set_live_default_mode,
+    set_live_default_refresh_seconds,
+    set_live_default_risk_per_trade_pct,
+    set_live_default_stop_loss_pct,
+    set_live_default_take_profit_pct,
 )
 import yfinance as yf
 
@@ -35,13 +47,19 @@ class StrategyMenu:
             broker=self.broker,
             initial_capital=DEFAULT_INITIAL_CAPITAL,
         )
-        self.live_console.router.set_mode(LIVE_DEFAULT_MODE)
-        self.live_console.risk_config.stop_loss_pct = LIVE_DEFAULT_STOP_LOSS_PCT / 100.0
-        self.live_console.risk_config.take_profit_pct = LIVE_DEFAULT_TAKE_PROFIT_PCT / 100.0
-        self.live_console.risk_config.risk_per_trade_pct = LIVE_DEFAULT_RISK_PER_TRADE_PCT / 100.0
-        self.live_console.risk_config.max_position_pct = LIVE_DEFAULT_MAX_POSITION_PCT / 100.0
+        self._apply_live_defaults()
         self.current_strategy = None
         self.current_strategy_name = None
+
+    def _apply_live_defaults(self):
+        self.live_console.router.set_mode(get_live_default_mode())
+        self.live_console.risk_config.stop_loss_pct = get_live_default_stop_loss_pct() / 100.0
+        self.live_console.risk_config.take_profit_pct = get_live_default_take_profit_pct() / 100.0
+        self.live_console.risk_config.risk_per_trade_pct = get_live_default_risk_per_trade_pct() / 100.0
+        self.live_console.risk_config.max_position_pct = get_live_default_max_position_pct() / 100.0
+        self.live_console.risk_config.kill_switch_enabled = get_kill_switch_enabled()
+        self.live_console.risk_config.market_hours_only = get_live_market_hours_only()
+        self.live_console.risk_config.max_orders_per_day = get_live_max_orders_per_day()
 
     def show(self):
         """Display the strategy sub-menu."""
@@ -301,18 +319,38 @@ class StrategyMenu:
             self.interface.print_error("No strategy selected. Select one first.")
             return
 
+        self._apply_live_defaults()
+
         self.interface.print_info("Real-time CLI console controls can be changed while running.")
         default_symbols = "RELIANCE.NS,TCS.NS,INFY.NS,HDFCBANK.NS,ICICIBANK.NS"
         symbols_raw = self.interface.input_prompt(f"Watchlist symbols CSV [{default_symbols}]: ") or default_symbols
         interval = self.interface.input_prompt("Bar interval [5m]: ") or "5m"
         period = self.interface.input_prompt("Data period [5d]: ") or "5d"
-        refresh_raw = self.interface.input_prompt(f"Refresh seconds [{LIVE_DEFAULT_REFRESH_SECONDS}]: ") or str(LIVE_DEFAULT_REFRESH_SECONDS)
-        mode_raw = self.interface.input_prompt(f"Execution mode (paper/live) [{LIVE_DEFAULT_MODE}]: ") or LIVE_DEFAULT_MODE
+        default_refresh = get_live_default_refresh_seconds()
+        default_mode = get_live_default_mode()
+        default_sl = get_live_default_stop_loss_pct()
+        default_tp = get_live_default_take_profit_pct()
+        default_risk = get_live_default_risk_per_trade_pct()
+        default_max_pos = get_live_default_max_position_pct()
+        default_kill = get_kill_switch_enabled()
+        default_hours = get_live_market_hours_only()
+        default_max_orders = get_live_max_orders_per_day()
+        refresh_raw = self.interface.input_prompt(f"Refresh seconds [{default_refresh}]: ") or str(default_refresh)
+        mode_raw = self.interface.input_prompt(f"Execution mode (paper/live) [{default_mode}]: ") or default_mode
 
-        sl_raw = self.interface.input_prompt(f"Stop-loss % [{LIVE_DEFAULT_STOP_LOSS_PCT}]: ") or str(LIVE_DEFAULT_STOP_LOSS_PCT)
-        tp_raw = self.interface.input_prompt(f"Take-profit % [{LIVE_DEFAULT_TAKE_PROFIT_PCT}]: ") or str(LIVE_DEFAULT_TAKE_PROFIT_PCT)
-        risk_raw = self.interface.input_prompt(f"Risk per trade % [{LIVE_DEFAULT_RISK_PER_TRADE_PCT}]: ") or str(LIVE_DEFAULT_RISK_PER_TRADE_PCT)
-        maxpos_raw = self.interface.input_prompt(f"Max position % [{LIVE_DEFAULT_MAX_POSITION_PCT}]: ") or str(LIVE_DEFAULT_MAX_POSITION_PCT)
+        sl_raw = self.interface.input_prompt(f"Stop-loss % [{default_sl}]: ") or str(default_sl)
+        tp_raw = self.interface.input_prompt(f"Take-profit % [{default_tp}]: ") or str(default_tp)
+        risk_raw = self.interface.input_prompt(f"Risk per trade % [{default_risk}]: ") or str(default_risk)
+        maxpos_raw = self.interface.input_prompt(f"Max position % [{default_max_pos}]: ") or str(default_max_pos)
+        kill_raw = self.interface.input_prompt(
+            f"Kill switch (on/off) [{'on' if default_kill else 'off'}]: "
+        ) or ("on" if default_kill else "off")
+        hours_raw = self.interface.input_prompt(
+            f"Market-hours guard (on/off) [{'on' if default_hours else 'off'}]: "
+        ) or ("on" if default_hours else "off")
+        max_orders_raw = self.interface.input_prompt(
+            f"Max orders per day [{default_max_orders}]: "
+        ) or str(default_max_orders)
 
         symbols = [item.strip().upper() for item in symbols_raw.split(",") if item.strip()]
         if not symbols:
@@ -325,6 +363,9 @@ class StrategyMenu:
             self.live_console.risk_config.take_profit_pct = max(0.1, float(tp_raw)) / 100.0
             self.live_console.risk_config.risk_per_trade_pct = max(0.1, float(risk_raw)) / 100.0
             self.live_console.risk_config.max_position_pct = max(1.0, float(maxpos_raw)) / 100.0
+            self.live_console.risk_config.kill_switch_enabled = kill_raw.strip().lower() == "on"
+            self.live_console.risk_config.market_hours_only = hours_raw.strip().lower() == "on"
+            self.live_console.risk_config.max_orders_per_day = max(1, int(max_orders_raw))
         except ValueError:
             self.interface.print_error("Invalid numeric input for runtime configuration.")
             return
@@ -333,6 +374,19 @@ class StrategyMenu:
         if mode not in {"paper", "live"}:
             self.interface.print_error("Invalid mode. Using paper mode.")
             mode = "paper"
+
+        save_defaults = (self.interface.input_prompt("Save these values as CLI defaults? (y/N): ") or "n").strip().lower()
+        if save_defaults in {"y", "yes"}:
+            set_live_default_refresh_seconds(refresh_seconds)
+            set_live_default_mode(mode)
+            set_live_default_stop_loss_pct(self.live_console.risk_config.stop_loss_pct * 100.0)
+            set_live_default_take_profit_pct(self.live_console.risk_config.take_profit_pct * 100.0)
+            set_live_default_risk_per_trade_pct(self.live_console.risk_config.risk_per_trade_pct * 100.0)
+            set_live_default_max_position_pct(self.live_console.risk_config.max_position_pct * 100.0)
+            set_kill_switch_enabled(self.live_console.risk_config.kill_switch_enabled)
+            set_live_market_hours_only(self.live_console.risk_config.market_hours_only)
+            set_live_max_orders_per_day(self.live_console.risk_config.max_orders_per_day)
+            self.interface.print_success("Live console defaults saved to CLI settings.")
 
         try:
             self.live_console.run(

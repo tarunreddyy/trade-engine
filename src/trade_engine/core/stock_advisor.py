@@ -1,18 +1,18 @@
-﻿import yfinance as yf
 import ta
+import yfinance as yf
+
+from trade_engine.config.llm_config import get_llm_provider
 from trade_engine.core.llm_factory import LLMFactory
-from trade_engine.config.llm_config import LLM_PROVIDER
 
 
 class AIStockAdvisor:
-    """AI-powered stock analysis and recommendations. Advisory only Ã¢â‚¬â€ never executes trades."""
+    """AI-powered stock analysis and recommendations."""
 
     def __init__(self, provider=None):
-        self.provider = provider or LLM_PROVIDER
+        self.provider = provider or get_llm_provider()
         self.client = LLMFactory.create_llm_client(self.provider)
 
     def analyze_stock(self, symbol: str, analysis_type: str = "comprehensive") -> str:
-        """Fetch stock data, compute metrics, and ask the LLM for analysis."""
         ticker = yf.Ticker(symbol)
         df = ticker.history(period="6mo", interval="1d")
         if df.empty:
@@ -39,12 +39,11 @@ class AIStockAdvisor:
         )
 
         analysis_prompts = {
-            "comprehensive": "Provide a comprehensive analysis including trend, momentum, support/resistance, and an overall recommendation.",
-            "technical": "Focus on technical analysis: chart patterns, indicators, support/resistance levels.",
-            "fundamental": "Focus on fundamental analysis: valuation, growth prospects, financial health.",
-            "risk": "Analyze the risk profile: volatility, drawdown potential, position sizing advice.",
+            "comprehensive": "Provide trend, momentum, support/resistance, and overall recommendation.",
+            "technical": "Focus on technical analysis: patterns, indicators, support/resistance.",
+            "fundamental": "Focus on fundamental analysis: valuation, growth, financial health.",
+            "risk": "Analyze risk profile: volatility, drawdown potential, position sizing advice.",
         }
-
         instruction = analysis_prompts.get(analysis_type, analysis_prompts["comprehensive"])
 
         messages = [
@@ -52,43 +51,34 @@ class AIStockAdvisor:
                 "role": "system",
                 "content": (
                     "You are an expert stock analyst. Provide clear, actionable analysis. "
-                    "Always include a disclaimer that this is not financial advice. "
-                    "Be concise but thorough."
+                    "Always include a disclaimer that this is not financial advice."
                 ),
             },
-            {
-                "role": "user",
-                "content": f"Analyze this stock:\n\n{prompt_data}\n\n{instruction}",
-            },
+            {"role": "user", "content": f"Analyze this stock:\n\n{prompt_data}\n\n{instruction}"},
         ]
-
         return self.client.generate_completion(messages, temperature=0.5)
 
     def recommend_stocks(self, criteria: str, count: int = 5) -> str:
-        """Ask the LLM to recommend stocks based on criteria."""
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are an expert stock analyst. When recommending stocks, "
-                    "provide the ticker symbol, a brief rationale, and key metrics. "
-                    "Focus on Indian market (NSE/BSE) stocks unless otherwise specified. "
+                    "You are an expert stock analyst. For recommendations provide ticker, rationale, and key metrics. "
+                    "Focus on Indian market (NSE/BSE) stocks unless specified otherwise. "
                     "Always include a disclaimer that this is not financial advice."
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"Recommend {count} stocks that match this criteria: {criteria}\n"
-                    "For each stock provide: Symbol, Name, Why it fits, Key metrics."
+                    f"Recommend {count} stocks matching this criteria: {criteria}\n"
+                    "For each stock provide Symbol, Name, Why it fits, Key metrics."
                 ),
             },
         ]
-
         return self.client.generate_completion(messages, temperature=0.5)
 
     def _calculate_stock_metrics(self, df):
-        """Compute key technical metrics from OHLCV data."""
         close = df["Close"]
         rsi = ta.momentum.rsi(close, window=14)
         sma_20 = ta.trend.sma_indicator(close, window=20)
@@ -105,5 +95,3 @@ class AIStockAdvisor:
             "volatility": round(volatility, 2) if volatility == volatility else "N/A",
             "avg_volume": int(df["Volume"].mean()),
         }
-
-
