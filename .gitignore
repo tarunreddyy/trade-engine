@@ -1,0 +1,39 @@
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# Python cache/bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging/build
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test/tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Notebook/system
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+
+# Runtime state
+data/runtime/live_session_state.json

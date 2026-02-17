@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trade-engine-cli"
+version = "1.0.0"
+description = "Broker-agnostic CLI trading engine with strategies, risk controls, and portfolio workflows."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Trade Engine Contributors" }
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: OS Independent",
+  "Environment :: Console",
+  "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+  "python-dotenv",
+  "openai",
+  "pinecone",
+  "sentence-transformers",
+  "tqdm",
+  "pandas",
+  "numpy",
+  "requests",
+  "rich",
+  "inquirer",
+  "yfinance",
+  "plotext",
+  "ta",
+  "anthropic",
+  "google-generativeai",
+]
+
+[project.optional-dependencies]
+groww = [
+  "growwapi",
+  "pyotp",
+]
+upstox = [
+  "upstox-python-sdk",
+]
+zerodha = [
+  "kiteconnect",
+]
+all-brokers = [
+  "growwapi",
+  "pyotp",
+  "upstox-python-sdk",
+  "kiteconnect",
+]
+build = [
+  "build>=1.2.2",
+  "pyinstaller>=6.0",
+  "twine>=5.1.1",
+]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.6.0",
+]
+
+[project.scripts]
+trade-engine = "trade_engine.cli.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["trade_engine*"]

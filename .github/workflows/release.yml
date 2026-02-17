@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish_to_pypi:
+        description: "Publish package to PyPI"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build-python-dist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/*
+
+  publish-pypi:
+    needs: build-python-dist
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || github.event.inputs.publish_to_pypi == 'true'
+    environment:
+      name: pypi
+      url: https://pypi.org/p/trade-engine-cli
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  build-windows-exe:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[build,groww]"
+
+      - name: Build EXE
+        run: pyinstaller --clean trade_engine.spec
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-engine-exe
+          path: dist/trade-engine.exe
+
+  attach-exe-to-release:
+    needs: build-windows-exe
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Download EXE artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: trade-engine-exe
+          path: dist
+
+      - name: Attach EXE to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/trade-engine.exe

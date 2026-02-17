@@ -1,0 +1,21 @@
+python-dotenv
+openai
+pinecone
+sentence-transformers
+tqdm
+pandas
+numpy
+requests
+rich
+inquirer
+yfinance
+plotext
+ta
+anthropic
+google-generativeai
+
+# Broker SDKs (install only what you use)
+growwapi
+pyotp
+# upstox-python-sdk
+# kiteconnect
