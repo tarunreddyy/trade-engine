@@ -67,7 +67,8 @@ First-time users:
 - All menus support:
   - numeric input (`1`, `2`, ...)
   - slash commands (`/1`, `/orders-management`, etc.)
-- Type `/` in any menu to open the command palette.
+- Menus are hidden by default for a cleaner terminal.
+- Type `/` in any menu to open the command palette dropdown and use arrow keys to select.
 - In chatbot and live runtime prompts, `/` shows available commands.
 - Slash matching supports direct command, numeric, and unique prefix resolution.
 

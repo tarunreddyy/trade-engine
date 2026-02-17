@@ -4,6 +4,7 @@ import sys
 import time
 from typing import Any, Callable
 
+import inquirer
 import pandas as pd
 from rich import box
 from rich.console import Console
@@ -21,13 +22,11 @@ class CLInterface:
         self.console = Console()
 
     def print_banner(self):
-        banner = """
-============================================================
-                     TRADE ENGINE CLI
-============================================================
-"""
-        self.console.print(banner, style="bold cyan")
-        self.console.print("[bold yellow]Tip:[/bold yellow] Type `/` in menus to open command palette.")
+        banner = Panel(
+            "[bold cyan]Trade Engine CLI[/bold cyan]\n[dim]Type `/` to open command palette.[/dim]",
+            border_style="cyan",
+        )
+        self.console.print(banner)
 
     def typing_effect(self, text: str, delay: float = 0.01, style: str = "white"):
         for char in text:
@@ -58,26 +57,31 @@ class CLInterface:
         text = re.sub(r"[^a-z0-9]+", "-", text)
         return text.strip("-")
 
-    def _show_menu_palette(self, options: list[str], title: str):
-        table = Table(title=f"{title} Commands", box=box.SIMPLE_HEAD, header_style="bold magenta")
-        table.add_column("Slash Command", style="cyan")
-        table.add_column("Action", style="white")
+    def _show_menu_palette(self, options: list[str], title: str) -> str | None:
+        choice_map: dict[str, str] = {}
+        labels: list[str] = []
         for idx, option in enumerate(options, 1):
-            table.add_row(f"/{idx}", option)
-            table.add_row(f"/{self._slugify(option)}", option)
-        table.add_row("/back", "Back (if available)")
-        table.add_row("/exit", "Exit (if available)")
-        self.console.print(table)
-
-    def _show_menu_table(self, options: list[str], title: str):
-        table = Table(title=title, box=box.ROUNDED, header_style="bold cyan")
-        table.add_column("#", style="green", justify="right")
-        table.add_column("Command", style="magenta")
-        table.add_column("Action", style="white")
-        for idx, option in enumerate(options, 1):
-            table.add_row(str(idx), f"/{self._slugify(option)}", option)
-        self.console.print(table)
-        self.console.print("[dim]Type `/` to list commands, or enter number/slash command.[/dim]")
+            slug = self._slugify(option)
+            label = f"/{slug:<26} {idx:>2}. {option}"
+            choice_map[label] = option
+            labels.append(label)
+        labels.append("Cancel")
+        answer = inquirer.prompt(
+            [
+                inquirer.List(
+                    "selection",
+                    message=f"{title} - Command Palette",
+                    choices=labels,
+                    carousel=True,
+                )
+            ]
+        )
+        if not answer:
+            return None
+        selected = str(answer.get("selection", "Cancel"))
+        if selected == "Cancel":
+            return None
+        return choice_map.get(selected)
 
     def _resolve_slash_command(self, command: str, options: list[str], slug_map: dict[str, str]) -> str | None:
         if command.isdigit():
@@ -114,18 +118,20 @@ class CLInterface:
         if clear_screen:
             self.console.clear()
         normalized_options = [str(option) for option in options]
-        self._show_menu_table(normalized_options, title)
+        self.console.print(f"[bold cyan]{title}[/bold cyan] [dim](type `/` for menu)[/dim]")
 
         slug_map = {self._slugify(option): option for option in normalized_options}
 
         while True:
             try:
-                raw = (self.console.input("[bold yellow]Choice: [/bold yellow]") or "").strip()
+                raw = (self.console.input("[bold cyan]> [/bold cyan]") or "").strip()
                 if not raw:
                     continue
 
                 if raw in {"/", "/?", "/help"}:
-                    self._show_menu_palette(normalized_options, title)
+                    picked = self._show_menu_palette(normalized_options, title)
+                    if picked:
+                        return picked
                     continue
 
                 if raw.startswith("/"):
@@ -133,15 +139,15 @@ class CLInterface:
                     resolved = self._resolve_slash_command(command, normalized_options, slug_map)
                     if resolved is not None:
                         return resolved
-                    self.console.print("[red]Unknown slash command. Type `/` to list commands.[/red]")
+                    self.console.print("[red]Unknown command. Type `/` for palette.[/red]")
                     continue
 
                 choice_num = int(raw)
                 if 1 <= choice_num <= len(normalized_options):
                     return normalized_options[choice_num - 1]
-                self.console.print("[red]Invalid choice. Please try again.[/red]")
+                self.console.print("[red]Invalid selection.[/red]")
             except ValueError:
-                self.console.print("[red]Please enter a valid number or slash command.[/red]")
+                self.console.print("[red]Use a number or slash command.[/red]")
             except KeyboardInterrupt:
                 self.console.print("\n[yellow]Exiting...[/yellow]")
                 sys.exit(0)
@@ -155,12 +161,24 @@ class CLInterface:
         while True:
             value = self.console.input(f"[{style}]{prompt}[/{style}]")
             if value.strip() == "/" and slash_commands:
-                table = Table(title="Available Commands", box=box.SIMPLE_HEAD, header_style="bold magenta")
-                table.add_column("Command", style="cyan")
-                table.add_column("Action", style="white")
-                for command, description in slash_commands.items():
-                    table.add_row(command, description)
-                self.console.print(table)
+                labels = [f"{command:<16} {description}" for command, description in slash_commands.items()]
+                labels.append("Cancel")
+                answer = inquirer.prompt(
+                    [
+                        inquirer.List(
+                            "selection",
+                            message="Input Commands",
+                            choices=labels,
+                            carousel=True,
+                        )
+                    ]
+                )
+                if not answer:
+                    continue
+                selected = str(answer.get("selection", "Cancel"))
+                if selected == "Cancel":
+                    continue
+                return selected.split()[0]
                 continue
             return value
 

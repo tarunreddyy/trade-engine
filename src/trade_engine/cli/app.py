@@ -116,14 +116,21 @@ class TraderCLI:
         }
         write_dashboard_state(state_file, payload)
 
+    @staticmethod
+    def _truncate(value: str, limit: int) -> str:
+        text = str(value or "")
+        if len(text) <= limit:
+            return text
+        return f"{text[: max(0, limit - 3)]}..."
+
     def _render_main_session_header(self):
         state = self._read_json(get_live_session_state_file())
         positions = state.get("positions", []) if isinstance(state.get("positions"), list) else []
         symbols = sorted({str(row.get("symbol", "")).upper() for row in positions if row.get("symbol")})
         summary = self.order_journal.get_session_summary(since_iso=self.session_started_at, limit=5)
+        dashboard_url = self.dashboard_server.url if self.dashboard_server else f"http://127.0.0.1:{get_live_dashboard_port()}"
 
         grid = Table.grid(expand=True)
-        grid.add_column(justify="left")
         grid.add_column(justify="left")
         grid.add_column(justify="left")
         grid.add_column(justify="left")
@@ -131,15 +138,32 @@ class TraderCLI:
             f"[cyan]Broker:[/cyan] {get_active_broker()}",
             f"[green]Holdings:[/green] {len(symbols)}",
             f"[yellow]Open Trades:[/yellow] {summary.get('open_orders', 0)}",
+        )
+        grid.add_row(
             f"[magenta]Closed Trades:[/magenta] {summary.get('closed_orders', 0)}",
+            f"[dim]Orders Total:[/dim] {summary.get('total_orders', 0)}",
+            f"[dim]Dashboard:[/dim] [link={dashboard_url}]{dashboard_url}[/link]",
         )
         holdings_text = ", ".join(symbols[:8]) if symbols else "-"
         if len(symbols) > 8:
             holdings_text += f", +{len(symbols) - 8} more"
+        holdings_text = self._truncate(holdings_text, 58)
+        open_preview_rows = summary.get("open_rows", []) if isinstance(summary.get("open_rows"), list) else []
+        open_preview = ", ".join(
+            f"{row.get('symbol', '')}:{row.get('side', '')}:{row.get('quantity', 0)}"
+            for row in open_preview_rows[:3]
+            if isinstance(row, dict)
+        ) or "-"
+        open_preview = self._truncate(open_preview, 58)
+        started_at = self.session_started_at.replace("T", " ").split(".")[0]
         grid.add_row(
-            f"[dim]Session started:[/dim] {self.session_started_at}",
+            f"[dim]Session:[/dim] {started_at}",
             f"[dim]Holdings symbols:[/dim] {holdings_text}",
-            f"[dim]Orders total:[/dim] {summary.get('total_orders', 0)}",
+            "[dim]Type `/` for command palette[/dim]",
+        )
+        grid.add_row(
+            f"[dim]Open Trades Preview:[/dim] {open_preview}",
+            "",
             "",
         )
         self.interface.console.print(Panel(grid, title="Current Session", border_style="cyan"))
