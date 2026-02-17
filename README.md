@@ -35,6 +35,7 @@ Download `trade-engine.exe` from GitHub Release artifacts.
    - Pinecone settings
    - live trading defaults (SL/TP/risk/max position)
    - safety controls (kill switch, market-hours guard, max orders/day)
+   - order journal path (SQLite) for persistent order lifecycle tracking
 3. Optional: keep `.env` as fallback only (if CLI settings file is missing).
 4. You can still run with:
    ```bash

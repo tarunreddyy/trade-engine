@@ -752,6 +752,12 @@ class LiveTradingConsole:
         while running:
             snapshots = self._build_snapshot(strategy, symbols, period=period, interval=interval)
             self._process_signals(snapshots)
+            if self.router.mode == "live":
+                reconciliation = self.router.reconcile_order_statuses()
+                if reconciliation.get("updated", 0) > 0:
+                    self._log_event(
+                        f"Reconciled {reconciliation['updated']}/{reconciliation['checked']} live orders."
+                    )
             self._render_dashboard(strategy_name=strategy_name, snapshots=snapshots)
             self.save_runtime_state(symbols)
             cmd = self._timed_command(timeout_seconds=refresh_seconds)

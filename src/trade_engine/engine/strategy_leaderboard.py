@@ -42,13 +42,24 @@ class StrategyLeaderboard:
     @staticmethod
     def _score_result(result: dict) -> float:
         total_return = float(result.get("total_return", 0.0))
+        total_costs = float(result.get("total_costs", 0.0))
+        initial_capital = float(result.get("initial_capital", 1.0)) or 1.0
+        cost_drag_pct = (total_costs / initial_capital) * 100.0
         sharpe = float(result.get("sharpe_ratio", 0.0))
         drawdown = abs(float(result.get("max_drawdown", 0.0)))
         win_rate = float(result.get("win_rate", 0.0))
         trades = float(result.get("total_trades", 0))
 
         quality_bonus = min(trades, 40.0) * 0.1
-        return round((0.45 * total_return) + (12.0 * sharpe) + (0.18 * win_rate) - (0.35 * drawdown) + quality_bonus, 3)
+        return round(
+            (0.45 * total_return)
+            + (12.0 * sharpe)
+            + (0.18 * win_rate)
+            - (0.35 * drawdown)
+            - (0.50 * cost_drag_pct)
+            + quality_bonus,
+            3,
+        )
 
     def _evaluate_pair(
         self,
@@ -72,6 +83,7 @@ class StrategyLeaderboard:
                 "win_rate_pct": result.get("win_rate", 0.0),
                 "trades": result.get("total_trades", 0),
                 "final_value": result.get("final_value", 0.0),
+                "total_costs": result.get("total_costs", 0.0),
             }
         except Exception:
             return None
@@ -149,6 +161,7 @@ class StrategyLeaderboard:
                     "avg_sharpe": round(sum(float(item["sharpe_ratio"]) for item in bucket) / count, 3),
                     "avg_drawdown_pct": round(sum(float(item["max_drawdown_pct"]) for item in bucket) / count, 3),
                     "avg_win_rate_pct": round(sum(float(item["win_rate_pct"]) for item in bucket) / count, 3),
+                    "avg_total_costs": round(sum(float(item["total_costs"]) for item in bucket) / count, 3),
                     "samples": count,
                 }
             )

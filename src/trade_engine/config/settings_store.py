@@ -38,6 +38,7 @@ ENV_MAPPING: Dict[str, str] = {
     "trading.kill_switch_enabled": "TRADING_KILL_SWITCH_ENABLED",
     "trading.live_market_hours_only": "LIVE_MARKET_HOURS_ONLY",
     "trading.live_max_orders_per_day": "LIVE_MAX_ORDERS_PER_DAY",
+    "trading.order_journal_file": "ORDER_JOURNAL_FILE",
 }
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
@@ -79,6 +80,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "kill_switch_enabled": False,
         "live_market_hours_only": True,
         "live_max_orders_per_day": 40,
+        "order_journal_file": "data/runtime/order_journal.sqlite",
     },
 }
 

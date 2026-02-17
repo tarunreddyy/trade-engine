@@ -98,6 +98,19 @@ def set_live_max_orders_per_day(value: int) -> bool:
     return set_setting("trading.live_max_orders_per_day", max(1, int(value)))
 
 
+def get_order_journal_file() -> str:
+    value = str(
+        get_setting("trading.order_journal_file", "data/runtime/order_journal.sqlite", str)
+        or "data/runtime/order_journal.sqlite"
+    ).strip()
+    return value or "data/runtime/order_journal.sqlite"
+
+
+def set_order_journal_file(path: str) -> bool:
+    value = str(path or "").strip() or "data/runtime/order_journal.sqlite"
+    return set_setting("trading.order_journal_file", value)
+
+
 # Backward compatibility constants.
 LIVE_DEFAULT_MODE = get_live_default_mode()
 LIVE_DEFAULT_REFRESH_SECONDS = get_live_default_refresh_seconds()
@@ -110,3 +123,4 @@ LIVE_AUTO_RESUME_SESSION = get_live_auto_resume_session()
 KILL_SWITCH_ENABLED = get_kill_switch_enabled()
 LIVE_MARKET_HOURS_ONLY = get_live_market_hours_only()
 LIVE_MAX_ORDERS_PER_DAY = get_live_max_orders_per_day()
+ORDER_JOURNAL_FILE = get_order_journal_file()

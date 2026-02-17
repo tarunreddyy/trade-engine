@@ -223,6 +223,7 @@ class StrategyMenu:
                 self.interface.console.print(f"  Max Drawdown:     {results['max_drawdown']}%")
                 self.interface.console.print(f"  Sharpe Ratio:     {results['sharpe_ratio']}")
                 self.interface.console.print(f"  Total Trades:     {results['total_trades']}")
+                self.interface.console.print(f"  Total Costs:      {results.get('total_costs', 0.0):,.2f}")
 
                 # Show equity curve
                 self.backtester.plot_equity_curve(results)

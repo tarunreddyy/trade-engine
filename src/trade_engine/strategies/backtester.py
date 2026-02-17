@@ -1,105 +1,167 @@
-﻿import pandas as pd
+from dataclasses import dataclass
+
 import numpy as np
+import pandas as pd
 import plotext as plt
-from trade_engine.strategies.base_strategy import BaseStrategy
+
+
+@dataclass
+class BacktestCostModel:
+    commission_pct: float = 0.001
+    slippage_bps: float = 5.0
+    latency_bars: int = 0
+    borrow_cost_pct_annual: float = 0.0
 
 
 class Backtester:
     """Backtest a strategy on historical OHLCV data."""
 
-    def run_backtest(self, df, strategy, initial_capital=100000, commission=0.001):
-        """Run backtest and return performance metrics.
+    @staticmethod
+    def _execution_index(i: int, last_idx: int, latency_bars: int) -> int:
+        return min(last_idx, i + max(0, int(latency_bars)))
 
-        Args:
-            df: DataFrame with OHLCV data.
-            strategy: A BaseStrategy instance (or StrategyCombiner with combine_signals).
-            initial_capital: Starting capital.
-            commission: Per-trade commission rate.
+    @staticmethod
+    def _entry_price(raw_price: float, slippage_bps: float) -> float:
+        return raw_price * (1.0 + max(0.0, slippage_bps) / 10000.0)
 
-        Returns:
-            dict with total_return, win_rate, max_drawdown, sharpe_ratio, trade_log.
-        """
+    @staticmethod
+    def _exit_price(raw_price: float, slippage_bps: float) -> float:
+        return raw_price * (1.0 - max(0.0, slippage_bps) / 10000.0)
+
+    def run_backtest(self, df, strategy, initial_capital=100000, cost_model: BacktestCostModel | None = None):
         if hasattr(strategy, "combine_signals"):
             df = strategy.combine_signals(df)
         else:
             df = strategy.calculate_signals(df)
 
-        capital = initial_capital
-        position = 0  # number of shares held
-        entry_price = 0
+        model = cost_model or BacktestCostModel()
+        commission = max(0.0, float(model.commission_pct))
+        slippage_bps = max(0.0, float(model.slippage_bps))
+        latency = max(0, int(model.latency_bars))
+
+        capital = float(initial_capital)
+        position = 0
+        entry_price = 0.0
+        entry_date = None
         trade_log = []
         equity_curve = []
+        total_fees = 0.0
+        total_slippage = 0.0
+        total_borrow = 0.0
+
+        closes = df["Close"].tolist()
+        signals = df["signal"].tolist()
+        dates = list(df.index)
+        last_idx = len(df) - 1
 
         for i in range(len(df)):
-            price = df["Close"].iloc[i]
-            signal = df["signal"].iloc[i]
-            date = df.index[i]
+            signal = signals[i]
 
             if signal == 1 and position == 0:
-                # Buy
+                exec_i = self._execution_index(i, last_idx, latency)
+                raw = float(closes[exec_i])
+                price = self._entry_price(raw, slippage_bps)
                 shares = int(capital / (price * (1 + commission)))
                 if shares > 0:
-                    cost = shares * price * (1 + commission)
+                    gross = shares * price
+                    fees = gross * commission
+                    slippage_cost = shares * (price - raw)
+                    cost = gross + fees
                     capital -= cost
+                    total_fees += fees
+                    total_slippage += slippage_cost
                     position = shares
                     entry_price = price
-                    trade_log.append({
-                        "date": str(date),
-                        "action": "BUY",
-                        "price": round(price, 2),
-                        "shares": shares,
-                        "capital": round(capital, 2),
-                    })
+                    entry_date = dates[exec_i]
+                    trade_log.append(
+                        {
+                            "date": str(dates[exec_i]),
+                            "action": "BUY",
+                            "price": round(price, 4),
+                            "raw_price": round(raw, 4),
+                            "shares": shares,
+                            "fees": round(fees, 2),
+                            "slippage_cost": round(slippage_cost, 2),
+                            "capital": round(capital, 2),
+                        }
+                    )
+
             elif signal == -1 and position > 0:
-                # Sell
-                revenue = position * price * (1 - commission)
+                exec_i = self._execution_index(i, last_idx, latency)
+                raw = float(closes[exec_i])
+                price = self._exit_price(raw, slippage_bps)
+                gross = position * price
+                fees = gross * commission
+                revenue = gross - fees
+                slippage_cost = position * (raw - price)
+
+                borrow_cost = 0.0
+                if model.borrow_cost_pct_annual > 0 and entry_date is not None:
+                    try:
+                        days_held = max(1, int((dates[exec_i] - entry_date).days))
+                    except Exception:
+                        days_held = 1
+                    borrow_cost = gross * (model.borrow_cost_pct_annual / 365.0) * days_held
+                    revenue -= borrow_cost
+
                 pnl = revenue - (position * entry_price * (1 + commission))
                 capital += revenue
-                trade_log.append({
-                    "date": str(date),
-                    "action": "SELL",
-                    "price": round(price, 2),
-                    "shares": position,
-                    "pnl": round(pnl, 2),
-                    "capital": round(capital, 2),
-                })
-                position = 0
+                total_fees += fees
+                total_slippage += slippage_cost
+                total_borrow += borrow_cost
 
-            # Track equity
-            portfolio_value = capital + position * price
+                trade_log.append(
+                    {
+                        "date": str(dates[exec_i]),
+                        "action": "SELL",
+                        "price": round(price, 4),
+                        "raw_price": round(raw, 4),
+                        "shares": position,
+                        "fees": round(fees, 2),
+                        "slippage_cost": round(slippage_cost, 2),
+                        "borrow_cost": round(borrow_cost, 2),
+                        "pnl": round(pnl, 2),
+                        "capital": round(capital, 2),
+                    }
+                )
+                position = 0
+                entry_price = 0.0
+                entry_date = None
+
+            mark_price = float(closes[i])
+            portfolio_value = capital + position * mark_price
             equity_curve.append(portfolio_value)
 
-        # Close any open position at last price
         if position > 0:
-            last_price = df["Close"].iloc[-1]
-            revenue = position * last_price * (1 - commission)
+            raw = float(closes[-1])
+            price = self._exit_price(raw, slippage_bps)
+            gross = position * price
+            fees = gross * commission
+            revenue = gross - fees
             capital += revenue
+            total_fees += fees
+            total_slippage += position * (raw - price)
             position = 0
 
         final_value = capital
         total_return = ((final_value - initial_capital) / initial_capital) * 100
 
-        # Win rate
         sells = [t for t in trade_log if t["action"] == "SELL"]
         wins = [t for t in sells if t.get("pnl", 0) > 0]
         win_rate = (len(wins) / len(sells) * 100) if sells else 0
 
-        # Max drawdown
         equity = pd.Series(equity_curve)
         peak = equity.cummax()
         drawdown = (equity - peak) / peak
         max_drawdown = drawdown.min() * 100 if len(drawdown) > 0 else 0
 
-        # Sharpe ratio (annualized, assuming daily data)
         if len(equity) > 1:
             returns = equity.pct_change().dropna()
-            if returns.std() != 0:
-                sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(252)
-            else:
-                sharpe_ratio = 0
+            sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(252) if returns.std() != 0 else 0
         else:
             sharpe_ratio = 0
 
+        total_costs = total_fees + total_slippage + total_borrow
         return {
             "total_return": round(total_return, 2),
             "final_value": round(final_value, 2),
@@ -108,12 +170,21 @@ class Backtester:
             "max_drawdown": round(max_drawdown, 2),
             "sharpe_ratio": round(sharpe_ratio, 2),
             "total_trades": len(sells),
+            "total_fees": round(total_fees, 2),
+            "total_slippage": round(total_slippage, 2),
+            "total_borrow_cost": round(total_borrow, 2),
+            "total_costs": round(total_costs, 2),
             "trade_log": trade_log,
             "equity_curve": equity_curve,
+            "cost_model": {
+                "commission_pct": model.commission_pct,
+                "slippage_bps": model.slippage_bps,
+                "latency_bars": model.latency_bars,
+                "borrow_cost_pct_annual": model.borrow_cost_pct_annual,
+            },
         }
 
     def plot_equity_curve(self, results):
-        """Plot the equity curve in terminal."""
         equity = results.get("equity_curve", [])
         if not equity:
             return
@@ -125,5 +196,3 @@ class Backtester:
         plt.plot(list(range(len(equity))), equity, label="Equity")
         plt.hline(results["initial_capital"], "red")
         plt.show()
-
-

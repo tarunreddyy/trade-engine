@@ -30,6 +30,7 @@ from trade_engine.config.trading_config import (
     get_live_default_mode,
     get_live_market_hours_only,
     get_live_max_orders_per_day,
+    get_order_journal_file,
     get_live_default_refresh_seconds,
     get_live_default_risk_per_trade_pct,
     get_live_default_stop_loss_pct,
@@ -41,6 +42,7 @@ from trade_engine.config.trading_config import (
     set_live_default_mode,
     set_live_market_hours_only,
     set_live_max_orders_per_day,
+    set_order_journal_file,
     set_live_default_refresh_seconds,
     set_live_default_risk_per_trade_pct,
     set_live_default_stop_loss_pct,
@@ -196,6 +198,7 @@ class SettingsMenu:
         current_risk = get_live_default_risk_per_trade_pct()
         current_max_pos = get_live_default_max_position_pct()
         current_state_file = get_live_session_state_file()
+        current_journal_file = get_order_journal_file()
         current_resume = get_live_auto_resume_session()
         current_kill = get_kill_switch_enabled()
         current_hours = get_live_market_hours_only()
@@ -219,6 +222,10 @@ class SettingsMenu:
             f"Max orders per day [{current_max_orders}]: "
         ).strip() or str(current_max_orders)
         state_file = self.interface.input_prompt(f"Session state file [{current_state_file}]: ").strip() or current_state_file
+        journal_file = (
+            self.interface.input_prompt(f"Order journal sqlite file [{current_journal_file}]: ").strip()
+            or current_journal_file
+        )
         resume_raw = (
             self.interface.input_prompt(f"Auto resume session (true/false) [{str(current_resume).lower()}]: ").strip()
             or str(current_resume).lower()
@@ -235,6 +242,7 @@ class SettingsMenu:
             set_live_market_hours_only(hours_raw.lower() in {"true", "1", "yes", "y", "on"})
             set_live_max_orders_per_day(int(max_orders_raw))
             set_live_session_state_file(state_file)
+            set_order_journal_file(journal_file)
             set_live_auto_resume_session(resume_raw.lower() in {"true", "1", "yes", "y", "on"})
         except ValueError as error:
             self.interface.print_error(f"Invalid value: {error}")
@@ -266,6 +274,7 @@ class SettingsMenu:
             {"setting": "trading.live_market_hours_only", "value": str(get_live_market_hours_only())},
             {"setting": "trading.live_max_orders_per_day", "value": str(get_live_max_orders_per_day())},
             {"setting": "trading.live_session_state_file", "value": get_live_session_state_file()},
+            {"setting": "trading.order_journal_file", "value": get_order_journal_file()},
             {"setting": "trading.live_auto_resume_session", "value": str(get_live_auto_resume_session())},
         ]
         self.interface.display_response(rows, "Effective CLI Settings")
