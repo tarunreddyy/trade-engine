@@ -1,5 +1,4 @@
 import json
-import os
 import re
 import sys
 import time
@@ -60,19 +59,12 @@ class CLInterface:
         return text.strip("-")
 
     def _show_menu_palette(self, options: list[str], title: str) -> str | None:
-        choice_map: dict[str, str] = {}
-        labels: list[str] = []
-        for idx, option in enumerate(options, 1):
-            slug = self._slugify(option)
-            label = f"/{slug:<26} {idx:>2}. {option}"
-            choice_map[label] = option
-            labels.append(label)
-        labels.append("Cancel")
+        labels = list(options)
         answer = inquirer.prompt(
             [
                 inquirer.List(
                     "selection",
-                    message=f"{title} - Command Palette",
+                    message=title,
                     choices=labels,
                     carousel=True,
                 )
@@ -80,10 +72,7 @@ class CLInterface:
         )
         if not answer:
             return None
-        selected = str(answer.get("selection", "Cancel"))
-        if selected == "Cancel":
-            return None
-        return choice_map.get(selected)
+        return str(answer.get("selection", ""))
 
     def _resolve_slash_command(self, command: str, options: list[str], slug_map: dict[str, str]) -> str | None:
         if command.isdigit():
@@ -205,48 +194,45 @@ class CLInterface:
                 buffer += character
                 prev_len = self._render_inline_prompt(prefix, buffer, prev_len)
 
-    def show_menu(self, options: list, title: str = "Menu", clear_screen: bool = True) -> str:
+    def show_menu(self, options: list, title: str = "Menu", clear_screen: bool = False) -> str:
         if clear_screen:
             self.console.clear()
         normalized_options = [str(option) for option in options]
-        slug_map = {self._slugify(option): option for option in normalized_options}
 
-        if os.name == "nt":
-            try:
-                return self._show_menu_windows(normalized_options, title, slug_map)
-            except RuntimeError:
-                pass
-
-        self.console.print(f"[bold cyan]{title}[/bold cyan] [dim](type `/` for menu)[/dim]")
+        # Default UX: direct dropdown menu with arrow navigation.
         while True:
             try:
-                raw = (self.console.input("[bold cyan]> [/bold cyan]") or "").strip()
-                if not raw:
-                    continue
+                selected = self._show_menu_palette(normalized_options, title)
+                if selected:
+                    return selected
 
-                if raw in {"/", "/?", "/help"}:
-                    picked = self._show_menu_palette(normalized_options, title)
-                    if picked:
-                        return picked
-                    continue
-
-                if raw.startswith("/"):
-                    command = raw[1:].strip().lower()
-                    resolved = self._resolve_slash_command(command, normalized_options, slug_map)
-                    if resolved is not None:
-                        return resolved
-                    self.console.print("[red]Unknown command. Type `/` for palette.[/red]")
-                    continue
-
-                choice_num = int(raw)
-                if 1 <= choice_num <= len(normalized_options):
-                    return normalized_options[choice_num - 1]
-                self.console.print("[red]Invalid selection.[/red]")
-            except ValueError:
-                self.console.print("[red]Use a number or slash command.[/red]")
+                # Graceful fallback on cancel/escape.
+                back_option = next((opt for opt in normalized_options if "back" in opt.lower()), None)
+                if back_option:
+                    return back_option
+                exit_option = next((opt for opt in normalized_options if opt.lower() in {"exit", "quit"}), None)
+                if exit_option:
+                    return exit_option
+                if normalized_options:
+                    return normalized_options[0]
             except KeyboardInterrupt:
                 self.console.print("\n[yellow]Exiting...[/yellow]")
                 sys.exit(0)
+            except Exception:
+                # If dropdown input fails on a terminal, fallback to numeric mode.
+                self.console.print(f"[bold cyan]{title}[/bold cyan]")
+                for idx, item in enumerate(normalized_options, 1):
+                    self.console.print(f"  [green]{idx}.[/green] {item}")
+                raw = (self.console.input("[bold cyan]> [/bold cyan]") or "").strip()
+                if not raw:
+                    continue
+                try:
+                    choice_num = int(raw)
+                    if 1 <= choice_num <= len(normalized_options):
+                        return normalized_options[choice_num - 1]
+                    self.console.print("[red]Invalid selection.[/red]")
+                except ValueError:
+                    self.console.print("[red]Use arrow keys in dropdown or enter a number.[/red]")
 
     def input_prompt(
         self,

@@ -1,4 +1,4 @@
-﻿DEFAULT_SCAN_UNIVERSE = [
+DEFAULT_SCAN_UNIVERSE = [
     "RELIANCE.NS",
     "TCS.NS",
     "INFY.NS",
@@ -51,4 +51,80 @@
     "PIDILITIND.NS",
 ]
 
+DEFAULT_FNO_UNIVERSE = [
+    "^NSEI",
+    "^NSEBANK",
+    "ADANIENT.NS",
+    "ADANIPORTS.NS",
+    "APOLLOHOSP.NS",
+    "ASIANPAINT.NS",
+    "AXISBANK.NS",
+    "BAJAJ-AUTO.NS",
+    "BAJAJFINSV.NS",
+    "BAJFINANCE.NS",
+    "BEL.NS",
+    "BHARTIARTL.NS",
+    "BPCL.NS",
+    "BRITANNIA.NS",
+    "CANBK.NS",
+    "CIPLA.NS",
+    "COALINDIA.NS",
+    "DIVISLAB.NS",
+    "DLF.NS",
+    "DRREDDY.NS",
+    "GAIL.NS",
+    "GRASIM.NS",
+    "HCLTECH.NS",
+    "HDFCBANK.NS",
+    "HDFCLIFE.NS",
+    "HEROMOTOCO.NS",
+    "HINDALCO.NS",
+    "HINDUNILVR.NS",
+    "ICICIBANK.NS",
+    "INDUSINDBK.NS",
+    "INFY.NS",
+    "ITC.NS",
+    "JSWSTEEL.NS",
+    "KOTAKBANK.NS",
+    "LT.NS",
+    "M&M.NS",
+    "MARUTI.NS",
+    "NTPC.NS",
+    "ONGC.NS",
+    "PFC.NS",
+    "POWERGRID.NS",
+    "RECLTD.NS",
+    "RELIANCE.NS",
+    "SBILIFE.NS",
+    "SBIN.NS",
+    "SHRIRAMFIN.NS",
+    "SUNPHARMA.NS",
+    "TATACONSUM.NS",
+    "TATAMOTORS.NS",
+    "TATASTEEL.NS",
+    "TCS.NS",
+    "TECHM.NS",
+    "TITAN.NS",
+    "ULTRACEMCO.NS",
+    "UPL.NS",
+    "WIPRO.NS",
+    "ZOMATO.NS",
+]
 
+NSE_INDEX_UNIVERSE: list[dict[str, str]] = [
+    {"name": "NIFTY 50", "symbol": "NIFTY50", "ticker": "^NSEI"},
+    {"name": "NIFTY BANK", "symbol": "BANKNIFTY", "ticker": "^NSEBANK"},
+    {"name": "NIFTY FIN SERVICE", "symbol": "FINNIFTY", "ticker": "^CNXFIN"},
+    {"name": "NIFTY IT", "symbol": "NIFTYIT", "ticker": "^CNXIT"},
+    {"name": "NIFTY AUTO", "symbol": "NIFTYAUTO", "ticker": "^CNXAUTO"},
+    {"name": "NIFTY PHARMA", "symbol": "NIFTYPHARMA", "ticker": "^CNXPHARMA"},
+    {"name": "NIFTY METAL", "symbol": "NIFTYMETAL", "ticker": "^CNXMETAL"},
+    {"name": "NIFTY FMCG", "symbol": "NIFTYFMCG", "ticker": "^CNXFMCG"},
+    {"name": "NIFTY MIDCAP 50", "symbol": "NIFTYMID50", "ticker": "^NSEMDCP50"},
+]
+
+
+def merged_scan_universe(include_fno: bool = True) -> list[str]:
+    if not include_fno:
+        return list(dict.fromkeys(DEFAULT_SCAN_UNIVERSE))
+    return list(dict.fromkeys([*DEFAULT_SCAN_UNIVERSE, *DEFAULT_FNO_UNIVERSE]))

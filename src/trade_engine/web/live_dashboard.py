@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import webbrowser
 from datetime import datetime
@@ -85,32 +86,177 @@ def _dashboard_html() -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Trade Engine Live Dashboard</title>
   <style>
-    body { font-family: Segoe UI, Arial, sans-serif; margin: 16px; background: #0f172a; color: #e2e8f0; }
-    h1,h2 { margin: 8px 0; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
-    .card { background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 12px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { border-bottom: 1px solid #1f2937; padding: 6px; text-align: left; }
-    .ok { color: #22c55e; } .bad { color: #ef4444; } .muted { color: #94a3b8; }
-    button { background: #2563eb; color: white; border: 0; border-radius: 6px; padding: 5px 8px; cursor: pointer; }
-    input, select { background: #0b1220; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 6px; }
+    :root {
+      --bg: #08121f;
+      --bg-soft: #0f1d2f;
+      --card: #12243b;
+      --card-alt: #152a45;
+      --line: #28476d;
+      --text: #dbeafe;
+      --muted: #91a9c7;
+      --buy: #22c55e;
+      --sell: #f43f5e;
+      --hold: #f59e0b;
+      --accent: #38bdf8;
+      --accent-2: #14b8a6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI Variable Text", "Segoe UI", Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at -10% -20%, #1e3a8a40, transparent 60%),
+        radial-gradient(1000px 500px at 110% 0%, #0f766e35, transparent 60%),
+        linear-gradient(180deg, var(--bg), #070f1a 70%);
+      min-height: 100vh;
+    }
+    .page { padding: 14px 16px 18px; }
+    .sticky {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: blur(10px);
+      background: #08121fcc;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 16px;
+      margin: -14px -16px 12px;
+    }
+    .title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    h1 { margin: 0; font-size: 20px; letter-spacing: 0.3px; }
+    .meta { color: var(--muted); font-size: 12px; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      background: var(--bg-soft);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .chip b { color: #ffffff; }
+    .layout {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 12px;
+    }
+    .stack { display: grid; gap: 12px; }
+    .card {
+      background: linear-gradient(180deg, var(--card), var(--card-alt));
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      box-shadow: inset 0 1px 0 #ffffff0d;
+    }
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 13px;
+      color: #c6dbf5;
+      letter-spacing: 0.25px;
+      text-transform: uppercase;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 6px;
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      color: #93c5fd;
+      font-weight: 600;
+      background: #0b1a2b;
+      position: sticky;
+      top: 0;
+    }
+    tr:hover td { background: #1a3250; }
+    .scroll { max-height: 300px; overflow: auto; border-radius: 8px; }
+    .signal {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 700;
+      display: inline-block;
+    }
+    .buy { color: #04240f; background: var(--buy); }
+    .sell { color: #fff1f2; background: var(--sell); }
+    .hold { color: #2a1a03; background: var(--hold); }
+    .up { color: var(--buy); font-weight: 600; }
+    .down { color: var(--sell); font-weight: 600; }
+    .muted { color: var(--muted); }
+    @media (max-width: 1150px) { .layout { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <h1>Trade Engine Live Dashboard</h1>
-  <div id="meta" class="muted"></div>
-  <div class="grid">
-    <div class="card"><h2>Signal Triggers (Latest First)</h2><div id="triggers"></div></div>
-    <div class="card"><h2>Live Positions</h2><div id="positions"></div></div>
-    <div class="card"><h2>Open Orders (Session)</h2><div id="openOrders"></div></div>
-    <div class="card"><h2>Closed Orders (Session)</h2><div id="closedOrders"></div></div>
-  </div>
-  <div class="grid" style="margin-top: 12px;">
-    <div class="card"><h2>Strategy Watchlist</h2><div id="watchlist"></div></div>
-    <div class="card"><h2>NSE Indexes</h2><div id="indices"></div></div>
-    <div class="card"><h2>F&O Watch</h2><div id="fno"></div></div>
+  <div class="page">
+    <div class="sticky">
+      <div class="title-row">
+        <h1>Trade Engine Live Dashboard</h1>
+        <div id="meta" class="meta"></div>
+      </div>
+      <div id="chips" class="chips"></div>
+    </div>
+
+    <div class="layout">
+      <div class="stack">
+        <div class="card">
+          <h2>Strategy Watchlist (Latest Triggers On Top)</h2>
+          <div id="watchlist" class="scroll"></div>
+        </div>
+        <div class="card">
+          <h2>Signal Triggers (Capped + Deduped)</h2>
+          <div id="triggers" class="scroll"></div>
+        </div>
+        <div class="card">
+          <h2>Session Orders</h2>
+          <div id="openOrders" class="scroll" style="margin-bottom: 10px;"></div>
+          <div id="closedOrders" class="scroll"></div>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="card">
+          <h2>Live Positions</h2>
+          <div id="positions" class="scroll"></div>
+        </div>
+        <div class="card">
+          <h2>NSE Indexes</h2>
+          <div id="indices" class="scroll"></div>
+        </div>
+        <div class="card">
+          <h2>F&O Snapshot</h2>
+          <div id="fno" class="scroll"></div>
+        </div>
+      </div>
+    </div>
   </div>
   <script>
+    function fmt(value, digits = 2) {
+      if (value === null || value === undefined || value === "") return "-";
+      const num = Number(value);
+      if (Number.isNaN(num)) return String(value);
+      return num.toFixed(digits);
+    }
+    function clsForPct(value) {
+      const num = Number(value);
+      if (Number.isNaN(num) || num === 0) return "muted";
+      return num > 0 ? "up" : "down";
+    }
+    function signalBadge(signalText) {
+      const text = String(signalText || "HOLD").toUpperCase();
+      const cls = text === "BUY" ? "buy" : (text === "SELL" ? "sell" : "hold");
+      return `<span class="signal ${cls}">${text}</span>`;
+    }
     function renderTable(rows, cols) {
       if (!rows || rows.length === 0) return "<div class='muted'>No data</div>";
       const head = "<tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr>";
@@ -130,21 +276,100 @@ def _dashboard_html() -> str:
       const body = rows.map(r => {
         const buy = `<input type='checkbox' ${r.buy_enabled ? "checked":""} onchange='sendControl("${r.symbol}","buy",this.checked)' />`;
         const sell = `<input type='checkbox' ${r.sell_enabled ? "checked":""} onchange='sendControl("${r.symbol}","sell",this.checked)' />`;
-        return `<tr><td>${r.symbol}</td><td>${r.price ?? "-"}</td><td>${r.change_pct ?? "-"}</td><td>${r.signal_text ?? "-"}</td><td>${buy}</td><td>${sell}</td></tr>`;
+        return `<tr>
+          <td>${r.symbol ?? "-"}</td>
+          <td>${fmt(r.price)}</td>
+          <td class='${clsForPct(r.change_pct)}'>${fmt(r.change_pct)}%</td>
+          <td>${signalBadge(r.signal_text)}</td>
+          <td>${buy}</td>
+          <td>${sell}</td>
+        </tr>`;
       }).join("");
+      return `<table>${head}${body}</table>`;
+    }
+    function renderPositions(rows) {
+      if (!rows || rows.length === 0) return "<div class='muted'>No open positions</div>";
+      const head = "<tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>LTP</th><th>uPnL</th></tr>";
+      const body = rows.map(r => `
+        <tr>
+          <td>${r.symbol ?? "-"}</td>
+          <td>${r.side ?? "-"}</td>
+          <td>${r.quantity ?? "-"}</td>
+          <td>${fmt(r.entry_price)}</td>
+          <td>${fmt(r.market_price)}</td>
+          <td class='${clsForPct(r.unrealized_pnl)}'>${fmt(r.unrealized_pnl)}</td>
+        </tr>`).join("");
+      return `<table>${head}${body}</table>`;
+    }
+    function renderTriggers(rows) {
+      if (!rows || rows.length === 0) return "<div class='muted'>No BUY/SELL triggers yet</div>";
+      const head = "<tr><th>Time</th><th>Symbol</th><th>Signal</th><th>Price</th><th>Action</th></tr>";
+      const body = rows.map(r => `
+        <tr>
+          <td>${r.timestamp ?? "-"}</td>
+          <td>${r.symbol ?? "-"}</td>
+          <td>${signalBadge(r.signal_text)}</td>
+          <td>${fmt(r.price)}</td>
+          <td>${r.action ?? "-"}</td>
+        </tr>`).join("");
+      return `<table>${head}${body}</table>`;
+    }
+    function renderIndex(rows) {
+      if (!rows || rows.length === 0) return "<div class='muted'>No index data</div>";
+      const head = "<tr><th>Name</th><th>Symbol</th><th>LTP</th><th>Chg%</th></tr>";
+      const body = rows.map(r => `
+        <tr>
+          <td>${r.name ?? "-"}</td>
+          <td>${r.symbol ?? "-"}</td>
+          <td>${fmt(r.ltp)}</td>
+          <td class='${clsForPct(r.change_pct)}'>${fmt(r.change_pct)}%</td>
+        </tr>`).join("");
+      return `<table>${head}${body}</table>`;
+    }
+    function renderFno(rows) {
+      if (!rows || rows.length === 0) return "<div class='muted'>No F&O data</div>";
+      const head = "<tr><th>Symbol</th><th>Segment</th><th>LTP</th><th>Chg%</th></tr>";
+      const body = rows.map(r => `
+        <tr>
+          <td>${r.symbol ?? "-"}</td>
+          <td>${r.segment ?? "-"}</td>
+          <td>${fmt(r.ltp)}</td>
+          <td class='${clsForPct(r.change_pct)}'>${fmt(r.change_pct)}%</td>
+        </tr>`).join("");
+      return `<table>${head}${body}</table>`;
+    }
+    function renderOrderTable(rows) {
+      if (!rows || rows.length === 0) return "<div class='muted'>No rows</div>";
+      const head = "<tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Status</th></tr>";
+      const body = rows.map(r => `
+        <tr>
+          <td>${r.created_at ?? "-"}</td>
+          <td>${r.symbol ?? "-"}</td>
+          <td>${r.side ?? "-"}</td>
+          <td>${r.quantity ?? "-"}</td>
+          <td>${fmt(r.price)}</td>
+          <td>${r.status ?? "-"}</td>
+        </tr>`).join("");
       return `<table>${head}${body}</table>`;
     }
     async function refresh() {
       const response = await fetch("/api/state");
       const data = await response.json();
-      document.getElementById("meta").innerText = `${data.strategy_name || "-"} | mode=${data.mode || "-"} | updated=${data.updated_at || "-"}`;
+      document.getElementById("meta").innerText = `${data.strategy_name || "-"} | mode=${String(data.mode || "-").toUpperCase()} | updated=${data.updated_at || "-"}`;
+      document.getElementById("chips").innerHTML = `
+        <div class="chip">Cash: <b>${fmt(data.cash)}</b></div>
+        <div class="chip">Equity: <b>${fmt(data.equity)}</b></div>
+        <div class="chip">Realized PnL: <b>${fmt(data.realized_pnl)}</b></div>
+        <div class="chip">Positions: <b>${(data.positions || []).length}</b></div>
+        <div class="chip">Triggers: <b>${(data.signal_triggers || []).length}</b></div>
+      `;
       document.getElementById("watchlist").innerHTML = renderWatchlist(data.watchlist || []);
-      document.getElementById("positions").innerHTML = renderTable(data.positions || [], ["symbol","side","quantity","entry_price","market_price","unrealized_pnl"]);
-      document.getElementById("openOrders").innerHTML = renderTable(data.open_orders || [], ["created_at","symbol","side","quantity","price","status"]);
-      document.getElementById("closedOrders").innerHTML = renderTable(data.closed_orders || [], ["created_at","symbol","side","quantity","price","status"]);
-      document.getElementById("triggers").innerHTML = renderTable(data.signal_triggers || [], ["timestamp","symbol","signal_text","price","action"]);
-      document.getElementById("indices").innerHTML = renderTable(data.indices || [], ["name","symbol","ltp","change_pct"]);
-      document.getElementById("fno").innerHTML = renderTable(data.fno || [], ["symbol","ltp","change_pct"]);
+      document.getElementById("positions").innerHTML = renderPositions(data.positions || []);
+      document.getElementById("openOrders").innerHTML = renderOrderTable(data.open_orders || []);
+      document.getElementById("closedOrders").innerHTML = renderOrderTable(data.closed_orders || []);
+      document.getElementById("triggers").innerHTML = renderTriggers(data.signal_triggers || []);
+      document.getElementById("indices").innerHTML = renderIndex(data.indices || []);
+      document.getElementById("fno").innerHTML = renderFno(data.fno || []);
     }
     refresh();
     setInterval(refresh, 2500);
@@ -239,6 +464,14 @@ class LiveDashboardServer:
 
     def start(self, open_browser: bool = False) -> str:
         if self._httpd:
+            if open_browser:
+                try:
+                    if os.name == "nt":
+                        os.startfile(self.url)  # type: ignore[attr-defined]
+                    else:
+                        webbrowser.open(self.url, new=2)
+                except Exception:
+                    pass
             return self.url
         handler = type("DashboardHandler", (_DashboardRequestHandler,), {})
         handler.state_file = self.state_file
@@ -248,7 +481,10 @@ class LiveDashboardServer:
         self._thread.start()
         if open_browser:
             try:
-                webbrowser.open(self.url)
+                if os.name == "nt":
+                    os.startfile(self.url)  # type: ignore[attr-defined]
+                else:
+                    webbrowser.open(self.url, new=2)
             except Exception:
                 pass
         return self.url

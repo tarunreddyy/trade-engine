@@ -43,6 +43,7 @@ class PositionState:
 
 class LiveTradingConsole:
     """Real-time CLI console for strategy-driven execution (paper/live)."""
+    MAX_SIGNAL_TRIGGERS = 15
 
     def __init__(
         self,
@@ -81,6 +82,8 @@ class LiveTradingConsole:
         self._symbol_controls: dict[str, dict[str, bool]] = {}
         self.signal_triggers: list[dict[str, Any]] = []
         self.auto_trading_enabled: bool = True
+        self._compact_cli_mode: bool = False
+        self._dashboard_url: str = ""
 
     @staticmethod
     def _signal_text(signal: int) -> str:
@@ -140,17 +143,18 @@ class LiveTradingConsole:
     def _append_trigger(self, symbol: str, signal: int, price: float | None, action: str):
         if signal not in {1, -1}:
             return
-        self.signal_triggers.insert(
-            0,
-            {
-                "timestamp": datetime.utcnow().strftime("%H:%M:%S"),
-                "symbol": symbol,
-                "signal_text": self._signal_label(signal),
-                "price": None if price is None else round(float(price), 4),
-                "action": action,
-            },
-        )
-        self.signal_triggers = self.signal_triggers[:200]
+        symbol_key = str(symbol or "").strip().upper()
+        row = {
+            "timestamp": datetime.utcnow().strftime("%H:%M:%S"),
+            "symbol": symbol_key,
+            "signal_text": self._signal_label(signal),
+            "price": None if price is None else round(float(price), 4),
+            "action": action,
+        }
+        # Keep list tight and relevant: if symbol already exists, bump it to top instead of growing list.
+        self.signal_triggers = [item for item in self.signal_triggers if str(item.get("symbol", "")).upper() != symbol_key]
+        self.signal_triggers.insert(0, row)
+        self.signal_triggers = self.signal_triggers[: self.MAX_SIGNAL_TRIGGERS]
 
     @staticmethod
     def _ordered_snapshots(snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -233,7 +237,7 @@ class LiveTradingConsole:
             "realized_pnl": round(self.realized_pnl, 2),
             "positions": positions,
             "watchlist": watchlist,
-            "signal_triggers": self.signal_triggers[:80],
+            "signal_triggers": list(self.signal_triggers),
             "open_orders": session_summary.get("open_rows", []),
             "closed_orders": session_summary.get("closed_rows", []),
             "session": {
@@ -244,6 +248,7 @@ class LiveTradingConsole:
             },
             "indices": indices,
             "fno": fno,
+            "dashboard_url": self._dashboard_url,
         }
 
     def _export_dashboard_state(
@@ -848,6 +853,65 @@ class LiveTradingConsole:
             command_panel,
         )
 
+    def _build_compact_cli(self, strategy_name: str, seconds_to_refresh: int) -> Group:
+        status = Table.grid(expand=True)
+        status.add_column(justify="left")
+        status.add_column(justify="left")
+        status.add_row(
+            f"[cyan]Strategy:[/cyan] {strategy_name}",
+            f"[magenta]Mode:[/magenta] {self.router.mode.upper()}",
+        )
+        status.add_row(
+            f"[green]Positions:[/green] {len(self.positions)}",
+            f"[yellow]Signals:[/yellow] {len(self.signal_triggers)}/{self.MAX_SIGNAL_TRIGGERS}",
+        )
+        status.add_row(
+            f"[white]Cash:[/white] {self.cash:,.2f}",
+            f"[white]Equity:[/white] {self._latest_equity:,.2f}",
+        )
+        status.add_row(
+            f"[white]Realized PnL:[/white] {self.realized_pnl:,.2f}",
+            f"[white]Orders Today:[/white] {self.router.orders_today}/{self.risk_config.max_orders_per_day}",
+        )
+        status.add_row(
+            f"[white]Dashboard:[/white] [link={self._dashboard_url}]{self._dashboard_url or '-'}[/link]",
+            f"[dim]next refresh in {seconds_to_refresh}s[/dim]",
+        )
+
+        trigger_rows = Table(title="Latest Triggers (deduped)", show_header=True, header_style="bold cyan")
+        trigger_rows.add_column("Time")
+        trigger_rows.add_column("Symbol")
+        trigger_rows.add_column("Signal")
+        trigger_rows.add_column("Price", justify="right")
+        trigger_rows.add_column("Action")
+        if not self.signal_triggers:
+            trigger_rows.add_row("-", "-", "-", "-", "-")
+        else:
+            for row in self.signal_triggers:
+                trigger_rows.add_row(
+                    str(row.get("timestamp", "-")),
+                    str(row.get("symbol", "-")),
+                    str(row.get("signal_text", "-")),
+                    "-" if row.get("price") is None else f"{float(row['price']):.2f}",
+                    str(row.get("action", "-")),
+                )
+
+        command_panel = Panel(
+            (
+                "[bold white]Live Commands:[/bold white] "
+                "/buy on|off, /sell on|off, /sl <pct>, /tp <pct>, /risk <pct>, /maxpos <pct>, "
+                "/mode paper|live, /kill on|off, /hours on|off, /maxorders <n>, /add <SYM>, /remove <SYM>, /quit\n"
+                f"[bold yellow]Input[/bold yellow]: [cyan]{self._command_buffer}[/cyan]"
+            ),
+            border_style="white",
+            title="Command Console",
+        )
+        return Group(
+            Panel(status, title="Live Session", border_style="green"),
+            Panel(trigger_rows, border_style="cyan"),
+            command_panel,
+        )
+
     def _poll_command_nonblocking(self) -> str | None:
         if os.name != "nt":
             return None
@@ -1024,17 +1088,20 @@ class LiveTradingConsole:
         self._command_buffer = ""
         self._latest_snapshots = []
         self.signal_triggers = []
+        self._compact_cli_mode = bool(launch_web_dashboard)
         session_started_at = datetime.utcnow().isoformat()
 
         if launch_web_dashboard:
-            dashboard_url = self._start_dashboard_server(open_browser=open_dashboard_browser)
-            self._log_event(f"Web dashboard: {dashboard_url}")
+            self._dashboard_url = self._start_dashboard_server(open_browser=open_dashboard_browser)
+            self._log_event(f"Web dashboard: {self._dashboard_url}")
+        else:
+            self._dashboard_url = f"http://127.0.0.1:{self.dashboard_port}"
 
         running = True
         next_refresh = time.monotonic()
 
         try:
-            with Live(console=self.interface.console, screen=True, auto_refresh=False) as live:
+            with Live(console=self.interface.console, screen=False, auto_refresh=False) as live:
                 while running:
                     now = time.monotonic()
 
@@ -1066,14 +1133,23 @@ class LiveTradingConsole:
                             break
 
                     seconds_to_refresh = max(0, int(next_refresh - now))
-                    live.update(
-                        self._build_dashboard(
-                            strategy_name=strategy_name,
-                            snapshots=self._latest_snapshots,
-                            seconds_to_refresh=seconds_to_refresh,
-                        ),
-                        refresh=True,
-                    )
+                    if self._compact_cli_mode:
+                        live.update(
+                            self._build_compact_cli(
+                                strategy_name=strategy_name,
+                                seconds_to_refresh=seconds_to_refresh,
+                            ),
+                            refresh=True,
+                        )
+                    else:
+                        live.update(
+                            self._build_dashboard(
+                                strategy_name=strategy_name,
+                                snapshots=self._latest_snapshots,
+                                seconds_to_refresh=seconds_to_refresh,
+                            ),
+                            refresh=True,
+                        )
                     time.sleep(0.05)
         finally:
             self.save_runtime_state(symbols)

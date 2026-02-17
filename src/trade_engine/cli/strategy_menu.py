@@ -1,6 +1,6 @@
 ﻿import yfinance as yf
 
-from trade_engine.config.market_universe import DEFAULT_SCAN_UNIVERSE
+from trade_engine.config.market_universe import DEFAULT_SCAN_UNIVERSE, merged_scan_universe
 from trade_engine.config.strategy_config import COMBINE_MODES, DEFAULT_INITIAL_CAPITAL, STRATEGY_DEFAULTS
 from trade_engine.config.trading_config import (
     get_kill_switch_enabled,
@@ -24,7 +24,6 @@ from trade_engine.config.trading_config import (
     set_live_max_orders_per_day,
 )
 from trade_engine.core.live_trading_console import LiveTradingConsole
-from trade_engine.core.market_data_service import FNO_DEFAULT_TICKERS
 from trade_engine.core.stock_visualizer import StockVisualizer
 from trade_engine.engine.portfolio_rebalancer import PortfolioRebalancer
 from trade_engine.engine.recommendation_engine import RecommendationEngine
@@ -50,6 +49,7 @@ class StrategyMenu:
             broker=self.broker,
             initial_capital=DEFAULT_INITIAL_CAPITAL,
         )
+        self.scan_universe = merged_scan_universe(include_fno=True)
         self._apply_live_defaults()
         self.current_strategy = None
         self.current_strategy_name = None
@@ -307,7 +307,7 @@ class StrategyMenu:
         self._ensure_default_strategy()
 
         self.interface.print_info(
-            f"Scanning default universe of {len(DEFAULT_SCAN_UNIVERSE)} stocks for strategy signals."
+            f"Scanning combined EQ+F&O universe of {len(self.scan_universe)} symbols for strategy signals."
         )
         top_n_raw = self.interface.input_prompt("Recommendations per side [25]: ") or "25"
         period = self.interface.input_prompt("Scan period [6mo]: ") or "6mo"
@@ -325,7 +325,7 @@ class StrategyMenu:
             "[bold cyan]Running strategy scanner across universe...[/bold cyan]",
             self.recommendation_engine.recommend,
             self.current_strategy,
-            DEFAULT_SCAN_UNIVERSE,
+            self.scan_universe,
             top_n,
             period,
             interval,
@@ -353,7 +353,7 @@ class StrategyMenu:
         self._ensure_default_strategy()
 
         self._apply_live_defaults()
-        symbols = list(dict.fromkeys([*DEFAULT_SCAN_UNIVERSE, *FNO_DEFAULT_TICKERS]))
+        symbols = list(self.scan_universe)
         self.interface.print_info(
             f"Strategy: {self.current_strategy_name} | Universe: {len(symbols)} symbols (EQ + F&O watch)."
         )
@@ -365,7 +365,7 @@ class StrategyMenu:
         suggested_refresh = max(10, default_refresh)
         refresh_raw = self.interface.input_prompt(f"Refresh seconds [{suggested_refresh}]: ") or str(suggested_refresh)
         dashboard_raw = self.interface.input_prompt("Launch web dashboard (Y/n): ") or "y"
-        browser_raw = self.interface.input_prompt("Open dashboard in browser automatically? (Y/n): ") or "y"
+        browser_raw = self.interface.input_prompt("Open dashboard in browser automatically? (y/N): ") or "n"
 
         try:
             refresh_seconds = max(3, int(refresh_raw))
@@ -426,6 +426,7 @@ class StrategyMenu:
             self.interface.print_info(
                 f"Web dashboard URL: http://127.0.0.1:{get_live_dashboard_port()}"
             )
+            self.interface.print_info("CLI will stay in compact command mode while dashboard visuals run in browser.")
 
         if auto_trade:
             save_defaults = (self.interface.input_prompt("Save these values as CLI defaults? (y/N): ") or "n").strip().lower()

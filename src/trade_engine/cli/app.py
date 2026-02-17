@@ -1,5 +1,6 @@
 import json
 import sys
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 
@@ -72,6 +73,11 @@ class TraderCLI:
 
     def _ensure_dashboard_server(self, open_browser: bool = False) -> str:
         if self.dashboard_server:
+            if open_browser:
+                try:
+                    webbrowser.open(self.dashboard_server.url)
+                except Exception:
+                    pass
             return self.dashboard_server.url
         self.dashboard_server = LiveDashboardServer(
             host="127.0.0.1",
@@ -411,8 +417,11 @@ class TraderCLI:
         if choice == "Open Web Dashboard (localhost)":
             try:
                 self._write_dashboard_fallback_state()
-                url = self._ensure_dashboard_server(open_browser=True)
+                url = self._ensure_dashboard_server(open_browser=False)
                 self.interface.print_success(f"Dashboard running at {url}")
+                open_now = (self.interface.input_prompt("Open in default browser now? (y/N): ") or "n").strip().lower()
+                if open_now in {"y", "yes"}:
+                    self._ensure_dashboard_server(open_browser=True)
             except Exception as error:
                 self.interface.print_error(f"Unable to start dashboard: {error}")
         elif choice == "Refresh Dashboard Fallback Data":
