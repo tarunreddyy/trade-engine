@@ -1,27 +1,28 @@
-﻿import os
+﻿import json
 import sys
-import json
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 from dotenv import load_dotenv
 from openai import OpenAI
 
 from trade_engine.brokers.base_broker import BaseBroker
 from trade_engine.brokers.broker_factory import BrokerFactory
 from trade_engine.config.openai_config import get_openai_api_key
-from trade_engine.logging.logger import logging
 from trade_engine.exception.exception import CustomException
+from trade_engine.logging.logger import logging
 
 load_dotenv()
+
 
 class PortfolioChatbot:
     """Chatbot for interacting with portfolio data using OpenAI"""
     
-    def __init__(self, broker: Optional[BaseBroker] = None, use_reasoning_model: bool = False):
+    def __init__(self, broker: BaseBroker | None = None, use_reasoning_model: bool = False):
         self.broker = broker or BrokerFactory.create_broker()
         self.client = OpenAI(api_key=get_openai_api_key())
-        self.conversation_history: List[Dict[str, str]] = []
-        self.portfolio_data: Optional[Dict[str, Any]] = None
-        self.positions_data: Optional[Dict[str, Any]] = None
+        self.conversation_history: list[dict[str, str]] = []
+        self.portfolio_data: dict[str, Any] | list[Any] | None = None
+        self.positions_data: dict[str, Any] | list[Any] | None = None
         self.use_reasoning_model = use_reasoning_model
         self.reasoning_model = "o1-preview"
         self.standard_model = "gpt-4o-mini"
@@ -67,7 +68,7 @@ class PortfolioChatbot:
             if isinstance(self.portfolio_data, dict):
                 # Check if it has a list of holdings
                 holdings = None
-                for key, value in self.portfolio_data.items():
+                for _key, value in self.portfolio_data.items():
                     if isinstance(value, list) and len(value) > 0:
                         holdings = value
                         break
@@ -104,7 +105,7 @@ class PortfolioChatbot:
         if self.positions_data:
             if isinstance(self.positions_data, dict):
                 positions = None
-                for key, value in self.positions_data.items():
+                for _key, value in self.positions_data.items():
                     if isinstance(value, list) and len(value) > 0:
                         positions = value
                         break
@@ -363,7 +364,7 @@ Remember:
         except Exception as e:
             error_msg = f"Error in chatbot: {str(e)}"
             logging.error(error_msg, exc_info=True)
-            raise CustomException(error_msg, sys)
+            raise CustomException(error_msg, sys) from e
     
     def reset_conversation(self):
         """Reset the conversation history"""
@@ -387,5 +388,4 @@ Remember:
         
         user_messages = [msg["content"] for msg in self.conversation_history if msg["role"] == "user"]
         return f"Total exchanges: {len(user_messages)}. Topics discussed: {', '.join(user_messages[:5])}"
-
 

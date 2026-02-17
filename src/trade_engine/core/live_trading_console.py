@@ -668,11 +668,19 @@ class LiveTradingConsole:
     def _apply_command(self, cmd: str, symbols: List[str]) -> bool:
         if not cmd:
             return True
-        tokens = cmd.strip().split()
+        normalized = cmd.strip()
+        if normalized == "/":
+            self._log_event(
+                "Commands: /help, /buy on|off, /sell on|off, /sl <pct>, /tp <pct>, /risk <pct>, /maxpos <pct>, "
+                "/mode paper|live, /kill on|off, /hours on|off, /maxorders <n>, /add <SYM>, /remove <SYM>, /quit"
+            )
+            return True
+
+        tokens = normalized.split()
         if not tokens:
             return True
 
-        key = tokens[0].lower()
+        key = tokens[0].lstrip("/").lower()
         if key == "quit":
             self._log_event("Stopping live console.")
             return False
@@ -751,7 +759,7 @@ class LiveTradingConsole:
                 self._log_event(f"Removed {symbol} from watchlist.")
             return True
 
-            self._log_event("Unknown command. Type 'help' for controls.")
+        self._log_event("Unknown command. Type '/' to list commands.")
         return True
 
     def run(

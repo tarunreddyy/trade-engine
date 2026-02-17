@@ -6,9 +6,7 @@ a = Analysis(
     ['main.py'],
     pathex=['src'],
     binaries=[],
-    datas=[
-        ('.env.template', '.'),
-    ],
+    datas=[],
     hiddenimports=[
         'trade_engine',
         'trade_engine.brokers',

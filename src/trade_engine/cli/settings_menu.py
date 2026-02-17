@@ -22,7 +22,13 @@ from trade_engine.config.pinecone_config import (
     set_pinecone_api_key,
     set_pinecone_index_name_eq,
 )
-from trade_engine.config.settings_store import get_settings_file, mask_secret, set_setting
+from trade_engine.config.settings_store import (
+    get_settings_file,
+    mask_secret,
+    save_settings,
+    set_setting,
+    load_settings,
+)
 from trade_engine.config.trading_config import (
     get_kill_switch_enabled,
     get_live_auto_resume_session,
@@ -49,6 +55,14 @@ from trade_engine.config.trading_config import (
     set_live_default_take_profit_pct,
     set_live_session_state_file,
 )
+from trade_engine.config.visualization_config import (
+    get_default_chart_type,
+    get_default_interval,
+    get_default_period,
+    set_default_chart_type,
+    set_default_interval,
+    set_default_period,
+)
 
 
 class SettingsMenu:
@@ -65,7 +79,9 @@ class SettingsMenu:
                 "Broker Credentials",
                 "LLM Provider and Keys",
                 "Pinecone Settings",
+                "Visualization Defaults",
                 "Live Trading Defaults",
+                "Advanced Key/Value",
                 "View Effective Settings",
                 "Back to Main Menu",
             ]
@@ -78,8 +94,12 @@ class SettingsMenu:
                 changed = self._set_llm_settings() or changed
             elif choice == "Pinecone Settings":
                 changed = self._set_pinecone_settings() or changed
+            elif choice == "Visualization Defaults":
+                changed = self._set_visualization_defaults() or changed
             elif choice == "Live Trading Defaults":
                 changed = self._set_live_defaults() or changed
+            elif choice == "Advanced Key/Value":
+                changed = self._set_advanced_key_value() or changed
             elif choice == "View Effective Settings":
                 self._show_effective_settings()
             elif choice == "Back to Main Menu":
@@ -190,6 +210,76 @@ class SettingsMenu:
             self.interface.print_success("Pinecone settings saved.")
         return updated
 
+    def _set_visualization_defaults(self) -> bool:
+        period = self.interface.input_prompt(f"Default chart period [{get_default_period()}]: ").strip() or get_default_period()
+        interval = (
+            self.interface.input_prompt(f"Default chart interval [{get_default_interval()}]: ").strip()
+            or get_default_interval()
+        )
+        chart_type = (
+            self.interface.input_prompt(f"Default chart type [{get_default_chart_type()}]: ").strip().lower()
+            or get_default_chart_type()
+        )
+        try:
+            set_default_period(period)
+            set_default_interval(interval)
+            set_default_chart_type(chart_type)
+            self.interface.print_success("Visualization defaults saved.")
+            return True
+        except ValueError as error:
+            self.interface.print_error(f"Invalid visualization setting: {error}")
+            return False
+
+    @staticmethod
+    def _parse_value(raw: str):
+        value = raw.strip()
+        lowered = value.lower()
+        if lowered in {"true", "false"}:
+            return lowered == "true"
+        try:
+            if "." in value:
+                return float(value)
+            return int(value)
+        except ValueError:
+            return value
+
+    def _set_advanced_key_value(self) -> bool:
+        self.interface.print_info("Set any dotted key path (example: trading.live_default_refresh_seconds).")
+        settings = load_settings()
+        self.interface.print_info("Type '/' at prompt to view input commands.")
+        key = self.interface.input_prompt(
+            "Setting key: ",
+            slash_commands={
+                "/list": "Show current top-level sections",
+                "/cancel": "Cancel",
+            },
+        ).strip()
+        if key in {"/cancel", ""}:
+            return False
+        if key == "/list":
+            self.interface.display_response(
+                [{"section": k} for k in sorted(settings.keys())],
+                "Available Top-Level Settings",
+            )
+            return False
+        raw_value = self.interface.input_prompt("Value (string/int/float/bool): ").strip()
+        if raw_value in {"/cancel", ""}:
+            return False
+
+        # Handle nested dict set.
+        parts = key.split(".")
+        cursor = settings
+        for part in parts[:-1]:
+            if part not in cursor or not isinstance(cursor[part], dict):
+                cursor[part] = {}
+            cursor = cursor[part]
+        cursor[parts[-1]] = self._parse_value(raw_value)
+        if save_settings(settings):
+            self.interface.print_success(f"Saved setting: {key}")
+            return True
+        self.interface.print_error("Failed to save advanced setting.")
+        return False
+
     def _set_live_defaults(self) -> bool:
         current_mode = get_live_default_mode()
         current_refresh = get_live_default_refresh_seconds()
@@ -264,6 +354,9 @@ class SettingsMenu:
             {"setting": "llm.gemini_api_key", "value": mask_secret(get_gemini_api_key())},
             {"setting": "pinecone.api_key", "value": mask_secret(get_pinecone_api_key())},
             {"setting": "pinecone.index_name_eq", "value": get_pinecone_index_name_eq()},
+            {"setting": "visualization.default_period", "value": get_default_period()},
+            {"setting": "visualization.default_interval", "value": get_default_interval()},
+            {"setting": "visualization.default_chart_type", "value": get_default_chart_type()},
             {"setting": "trading.live_default_mode", "value": get_live_default_mode()},
             {"setting": "trading.live_default_refresh_seconds", "value": str(get_live_default_refresh_seconds())},
             {"setting": "trading.live_default_stop_loss_pct", "value": str(get_live_default_stop_loss_pct())},

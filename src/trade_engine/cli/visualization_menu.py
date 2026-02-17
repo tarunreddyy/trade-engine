@@ -1,6 +1,10 @@
 ﻿from trade_engine.core.stock_visualizer import StockVisualizer
 from trade_engine.config.visualization_config import (
-    VALID_PERIODS, VALID_INTERVALS, AVAILABLE_INDICATORS
+    AVAILABLE_INDICATORS,
+    VALID_INTERVALS,
+    VALID_PERIODS,
+    get_default_interval,
+    get_default_period,
 )
 
 
@@ -40,18 +44,20 @@ class VisualizationMenu:
 
     def _get_period(self):
         self.interface.print_info(f"Valid periods: {', '.join(VALID_PERIODS)}")
-        period = self.interface.input_prompt("Enter period [1mo]: ") or "1mo"
+        default_period = get_default_period()
+        period = self.interface.input_prompt(f"Enter period [{default_period}]: ") or default_period
         if period not in VALID_PERIODS:
-            self.interface.print_error(f"Invalid period. Using '1mo'.")
-            period = "1mo"
+            self.interface.print_error(f"Invalid period. Using '{default_period}'.")
+            period = default_period
         return period
 
     def _get_interval(self):
         self.interface.print_info(f"Valid intervals: {', '.join(VALID_INTERVALS)}")
-        interval = self.interface.input_prompt("Enter interval [1d]: ") or "1d"
+        default_interval = get_default_interval()
+        interval = self.interface.input_prompt(f"Enter interval [{default_interval}]: ") or default_interval
         if interval not in VALID_INTERVALS:
-            self.interface.print_error(f"Invalid interval. Using '1d'.")
-            interval = "1d"
+            self.interface.print_error(f"Invalid interval. Using '{default_interval}'.")
+            interval = default_interval
         return interval
 
     def _select_indicators(self):

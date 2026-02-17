@@ -343,16 +343,24 @@ class TraderCLI:
 
         while True:
             try:
-                user_input = self.interface.input_prompt("You: ", style="bold green")
+                user_input = self.interface.input_prompt(
+                    "You: ",
+                    style="bold green",
+                    slash_commands={
+                        "/refresh": "Reload portfolio data",
+                        "/reset": "Reset conversation",
+                        "/exit": "Exit chatbot",
+                    },
+                )
                 command = user_input.lower().strip()
-                if command in {"exit", "quit", "back"}:
+                if command in {"exit", "quit", "back", "/exit", "/quit", "/back"}:
                     self.interface.print_info("Exiting chatbot...")
                     break
-                if command == "reset":
+                if command in {"reset", "/reset"}:
                     self.chatbot.reset_conversation()
                     self.interface.print_success("Conversation reset!")
                     continue
-                if command == "refresh":
+                if command in {"refresh", "/refresh"}:
                     response = self.interface.show_loading(
                         "[bold cyan]Portfolio Bot is refreshing and thinking...[/bold cyan]",
                         self.chatbot.chat,

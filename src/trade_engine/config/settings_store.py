@@ -39,6 +39,9 @@ ENV_MAPPING: Dict[str, str] = {
     "trading.live_market_hours_only": "LIVE_MARKET_HOURS_ONLY",
     "trading.live_max_orders_per_day": "LIVE_MAX_ORDERS_PER_DAY",
     "trading.order_journal_file": "ORDER_JOURNAL_FILE",
+    "visualization.default_period": "VIS_DEFAULT_PERIOD",
+    "visualization.default_interval": "VIS_DEFAULT_INTERVAL",
+    "visualization.default_chart_type": "VIS_DEFAULT_CHART_TYPE",
 }
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
@@ -81,6 +84,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "live_market_hours_only": True,
         "live_max_orders_per_day": 40,
         "order_journal_file": "data/runtime/order_journal.sqlite",
+    },
+    "visualization": {
+        "default_period": "1mo",
+        "default_interval": "1d",
+        "default_chart_type": "candlestick",
     },
 }
 
